@@ -3157,6 +3157,8 @@ function App() {
 				<Suspense fallback={<RouteFallback />}>
 				<Routes>
 					<Route path="/" element={<RootGate />} />
+					{/* /login — привычная ссылка из рассылок и старых закладок: экран входа живёт на "/" */}
+					<Route path="/login" element={<RootGate />} />
 					<Route path="/onboarding" element={<OnboardingScreen />} />
 					<Route path="/register" element={<RegisterScreen />} />
 					<Route path="/set-pin" element={<SetPinScreen />} />
@@ -3203,6 +3205,9 @@ function App() {
 						<Route path="logs" element={<AdminLogsScreen />} />
 						<Route path="settings" element={<AdminSettingsScreen />} />
 					</Route>
+
+					{/* Неизвестный адрес вместо пустого экрана — обратно на вход */}
+					<Route path="*" element={<Navigate to="/" replace />} />
 				</Routes>
 				</Suspense>
 			</BrowserRouter>
