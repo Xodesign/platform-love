@@ -1,4 +1,12 @@
-import { useState, useRef, useEffect, createContext, useContext } from "react";
+import {
+	useState,
+	useRef,
+	useEffect,
+	createContext,
+	useContext,
+	lazy,
+	Suspense,
+} from "react";
 import {
 	BrowserRouter,
 	Routes,
@@ -23,22 +31,34 @@ import ChatScreen from "./ChatScreen";
 import SettingsScreen from "./SettingsScreen";
 import SubscriptionScreen from "./SubscriptionScreen";
 import BlacklistScreen from "./BlacklistScreen";
-import AdminLayout from "./admin/AdminLayout";
-import AdminLoginScreen from "./admin/AdminLoginScreen";
-import AdminOrdersScreen from "./admin/AdminOrdersScreen";
-import AdminOrderDetailScreen from "./admin/AdminOrderDetailScreen";
-import AdminUsersScreen from "./admin/AdminUsersScreen";
-import AdminUserDetailScreen from "./admin/AdminUserDetailScreen";
-import AdminSupportScreen from "./admin/AdminSupportScreen";
-import AdminChatScreen from "./admin/AdminChatScreen";
-import AdminComplaintsScreen from "./admin/AdminComplaintsScreen";
-import AdminProfileScreen from "./admin/AdminProfileScreen";
-import AdminDashboard from "./admin/AdminDashboard";
-import AdminBlacklistScreen from "./admin/AdminBlacklistScreen";
-import AdminModerationScreen from "./admin/AdminModerationScreen";
-import AdminLogsScreen from "./admin/AdminLogsScreen";
-import AdminSettingsScreen from "./admin/AdminSettingsScreen";
-import AdminPaymentScreen from "./admin/AdminPaymentScreen";
+// Админку грузим отдельными чанками: обычному пользователю она не нужна
+// в первом бандле, а на телефоне это заметная экономия трафика и памяти.
+const AdminLayout = lazy(() => import("./admin/AdminLayout"));
+const AdminLoginScreen = lazy(() => import("./admin/AdminLoginScreen"));
+const AdminOrdersScreen = lazy(() => import("./admin/AdminOrdersScreen"));
+const AdminOrderDetailScreen = lazy(
+	() => import("./admin/AdminOrderDetailScreen"),
+);
+const AdminUsersScreen = lazy(() => import("./admin/AdminUsersScreen"));
+const AdminUserDetailScreen = lazy(
+	() => import("./admin/AdminUserDetailScreen"),
+);
+const AdminSupportScreen = lazy(() => import("./admin/AdminSupportScreen"));
+const AdminChatScreen = lazy(() => import("./admin/AdminChatScreen"));
+const AdminComplaintsScreen = lazy(
+	() => import("./admin/AdminComplaintsScreen"),
+);
+const AdminProfileScreen = lazy(() => import("./admin/AdminProfileScreen"));
+const AdminDashboard = lazy(() => import("./admin/AdminDashboard"));
+const AdminBlacklistScreen = lazy(
+	() => import("./admin/AdminBlacklistScreen"),
+);
+const AdminModerationScreen = lazy(
+	() => import("./admin/AdminModerationScreen"),
+);
+const AdminLogsScreen = lazy(() => import("./admin/AdminLogsScreen"));
+const AdminSettingsScreen = lazy(() => import("./admin/AdminSettingsScreen"));
+const AdminPaymentScreen = lazy(() => import("./admin/AdminPaymentScreen"));
 
 const LOGO_URL =
 	"https://storage.yandexcloud.net/promto-user-static-sites-prod/design-assets/909022946/8c7e6951-480b-46d6-8680-2024c7503c12/8f62e6d4-fe4e-433f-b1fa-8360fa65021d-logo.png";
@@ -3091,6 +3111,25 @@ function ProfileScreen() {
 }
 
 // Защита авторизованных экранов: без токена — обратно на вход
+function RouteFallback() {
+	return (
+		<div
+			style={{
+				minHeight: "100vh",
+				display: "flex",
+				alignItems: "center",
+				justifyContent: "center",
+				background: "#1A1A23",
+				color: "#fff",
+				fontFamily: "Inter, system-ui, sans-serif",
+				fontSize: 15,
+			}}
+		>
+			Загрузка…
+		</div>
+	);
+}
+
 function RequireAuth() {
 	if (!localStorage.getItem("token")) {
 		return <Navigate to="/" replace />;
@@ -3115,6 +3154,7 @@ function App() {
 	return (
 		<GenderContext.Provider value={{ gender, setGender }}>
 			<BrowserRouter>
+				<Suspense fallback={<RouteFallback />}>
 				<Routes>
 					<Route path="/" element={<RootGate />} />
 					<Route path="/onboarding" element={<OnboardingScreen />} />
@@ -3164,6 +3204,7 @@ function App() {
 						<Route path="settings" element={<AdminSettingsScreen />} />
 					</Route>
 				</Routes>
+				</Suspense>
 			</BrowserRouter>
 		</GenderContext.Provider>
 	);

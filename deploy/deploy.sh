@@ -24,7 +24,7 @@
 set -euo pipefail
 
 # ---------- настройки (можно переопределить переменными окружения) ----------
-VPS_HOST="${VPS_HOST:-80.78.244.136}"          # VPS id 7924729, он же cv7924729
+VPS_HOST="${VPS_HOST:-80.78.244.136}" # VPS id 7924729, он же cv7924729
 VPS_USER="${VPS_USER:-root}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_rsa}"
 APP_DIR="${APP_DIR:-/var/www/platformlove.com}" # боевой каталог: его отдаёт nginx и его читает :3001
@@ -43,17 +43,23 @@ GIT_CHECK=1
 DO_PUSH=0
 for arg in "$@"; do
 	case "$arg" in
-		--skip-build) SKIP_BUILD=1 ;;
-		--no-git-check) GIT_CHECK=0 ;;
-		--push) DO_PUSH=1 ;;
-		*) echo "Неизвестный флаг: $arg" >&2; exit 2 ;;
+	--skip-build) SKIP_BUILD=1 ;;
+	--no-git-check) GIT_CHECK=0 ;;
+	--push) DO_PUSH=1 ;;
+	*)
+		echo "Неизвестный флаг: $arg" >&2
+		exit 2
+		;;
 	esac
 done
 
 step() { printf '\n\033[1;35m▶ %s\033[0m\n' "$1"; }
 ok() { printf '  \033[1;32m✔\033[0m %s\n' "$1"; }
 warn() { printf '  \033[1;33m!\033[0m %s\n' "$1"; }
-die() { printf '\n  \033[1;31m✘ %s\033[0m\n' "$1" >&2; exit 1; }
+die() {
+	printf '\n  \033[1;31m✘ %s\033[0m\n' "$1" >&2
+	exit 1
+}
 
 SSH_BASE=(ssh -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
 SCP_BASE=(scp -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
@@ -99,8 +105,11 @@ if [ "$SKIP_BUILD" = "1" ] && [ -d dist ]; then
 	warn "Сборка пропущена, использую существующий dist/"
 else
 	command -v npm >/dev/null 2>&1 || die "npm не найден"
-	NODE_OPTIONS='--max-old-space-size=512' npm run build >/tmp/deploy_build_${TS}.log 2>&1 \
-		|| { tail -20 /tmp/deploy_build_${TS}.log; die "Сборка упала (лог: /tmp/deploy_build_${TS}.log)"; }
+	NODE_OPTIONS='--max-old-space-size=512' npm run build >/tmp/deploy_build_${TS}.log 2>&1 ||
+		{
+			tail -20 /tmp/deploy_build_${TS}.log
+			die "Сборка упала (лог: /tmp/deploy_build_${TS}.log)"
+		}
 	[ -d dist ] || die "После сборки нет dist/"
 	ok "dist собран ($(du -sh dist | cut -f1))"
 fi
@@ -111,15 +120,15 @@ ok "Онбординг-ассеты в сборке на месте"
 # ---------- 3. бэкап ----------
 step "3/6. Бэкап боевой БД и кода"
 RSH "mkdir -p ${BACKUP_DIR} && cd ${APP_DIR}/server && \
-node -e 'const D=require(\"better-sqlite3\");const s=D(\"database.sqlite\",{readonly:true});s.backup(\"${BACKUP_DIR}/db_${TS}.sqlite\").then(()=>{s.close();console.log(\"  ✔ БД: db_${TS}.sqlite\")}).catch(e=>{console.error(e.message);process.exit(1)})'" \
-	|| die "Не удалось забэкапить БД"
+node -e 'const D=require(\"better-sqlite3\");const s=D(\"database.sqlite\",{readonly:true});s.backup(\"${BACKUP_DIR}/db_${TS}.sqlite\").then(()=>{s.close();console.log(\"  ✔ БД: db_${TS}.sqlite\")}).catch(e=>{console.error(e.message);process.exit(1)})'" ||
+	die "Не удалось забэкапить БД"
 RSH "cd ${APP_DIR} && tar czf ${BACKUP_DIR}/code_${TS}.tar.gz dist server/src server/package.json 2>/dev/null && \
 echo '  ✔ код: code_${TS}.tar.gz'" || die "Не удалось забэкапить код"
 
 # ---------- 4. выкладка ----------
 step "4/6. Выкладка кода"
-tar czf "$PAYLOAD" dist server/src server/package.json server/scripts/create-admin.js \
-	|| die "Не удалось собрать архив"
+tar czf "$PAYLOAD" dist server/src server/package.json server/scripts/create-admin.js ||
+	die "Не удалось собрать архив"
 ok "Архив: $(du -h "$PAYLOAD" | cut -f1)"
 "${SCP_BASE[@]}" -q "$PAYLOAD" "$VPS_USER@$VPS_HOST:$REMOTE_PAYLOAD" || die "scp не прошёл"
 rm -f "$PAYLOAD"
@@ -129,14 +138,17 @@ RSH "set -e; cd ${APP_DIR}; rm -rf dist server/src; \
 tar xzf ${REMOTE_PAYLOAD} -C ${APP_DIR}; \
 echo '  ✔ код развёрнут'; \
 cd server; \
-node -e 'import(\"./src/db/migrate.js\").then(m=>{m.migrate();console.log(\"  ✔ миграция схемы применена\")}).catch(e=>{console.error(\"миграция: \"+e.message);process.exit(1)})'" \
-	|| die "Выкладка или миграция завершились ошибкой"
+node -e 'import(\"./src/db/migrate.js\").then(m=>{m.migrate();console.log(\"  ✔ миграция схемы применена\")}).catch(e=>{console.error(\"миграция: \"+e.message);process.exit(1)})'" ||
+	die "Выкладка или миграция завершились ошибкой"
 
 # ---------- 5. перезапуск ----------
 step "5/6. Перезапуск сервиса"
 RSH "set -e; systemctl restart ${SERVICE}; sleep 4; \
-systemctl is-active --quiet ${SERVICE} && echo '  ✔ сервис active' || { journalctl -u ${SERVICE} -n 15 --no-pager; exit 1; }" \
-	|| { rollback; die "Сервис не поднялся — откат выполнен, детали в journalctl -u ${SERVICE}"; }
+systemctl is-active --quiet ${SERVICE} && echo '  ✔ сервис active' || { journalctl -u ${SERVICE} -n 15 --no-pager; exit 1; }" ||
+	{
+		rollback
+		die "Сервис не поднялся — откат выполнен, детали в journalctl -u ${SERVICE}"
+	}
 
 # ---------- 6. проверки ----------
 step "6/6. Проверка здоровья"
@@ -148,7 +160,11 @@ fi
 ok "Бэкенд внутри сервера: /api/health ok"
 
 EXT=$(curl -sS --max-time 15 "https://${DOMAIN}/api/health" 2>/dev/null || true)
-case "$EXT" in *'"ok"'*) ok "Снаружи: https://${DOMAIN}/api/health ok" ;; *) rollback; die "Снаружи /api/health не отвечает — откат выполнен" ;; esac
+case "$EXT" in *'"ok"'*) ok "Снаружи: https://${DOMAIN}/api/health ok" ;; *)
+	rollback
+	die "Снаружи /api/health не отвечает — откат выполнен"
+	;;
+esac
 
 CT=$(curl -sSI --max-time 15 "https://${DOMAIN}/onboarding/1-flowers.jpg" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2}')
 if [ "$CT" = "image/jpeg" ]; then
@@ -161,9 +177,9 @@ fi
 for p in /api/admin/login /api/likes/incoming /api/blacklist /api/notifications /api/posts; do
 	CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "https://${DOMAIN}${p}" 2>/dev/null || echo 000)
 	case "$CODE" in
-		401|400|200|405) ok "${p} доступен (HTTP ${CODE})" ;;
-		404) warn "${p} → 404: маршрут не поднят" ;;
-		*) warn "${p} → HTTP ${CODE}" ;;
+	401 | 400 | 200 | 405) ok "${p} доступен (HTTP ${CODE})" ;;
+	404) warn "${p} → 404: маршрут не поднят" ;;
+	*) warn "${p} → HTTP ${CODE}" ;;
 	esac
 done
 

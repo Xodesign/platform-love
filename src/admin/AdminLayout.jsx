@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { NavLink, Outlet, Navigate, useNavigate } from "react-router-dom";
+import api from "../api.js";
 
 const navItems = [
 	{ path: "/admin/support", label: "Поддержка", icon: "💬", badge: 2 },
@@ -30,8 +31,30 @@ const bottomNavItems = [
 export default function AdminLayout() {
 	const navigate = useNavigate();
 	const [sidebarOpen, setSidebarOpen] = useState(false);
+	// Записанный в localStorage токен сам по себе ничего не доказывает:
+	// без проверки сервером админка открывалась бы напрямую по URL.
+	const [session, setSession] = useState(() =>
+		localStorage.getItem("admin_token") ? "checking" : "anonymous",
+	);
+
+	useEffect(() => {
+		if (session !== "checking") return;
+		let alive = true;
+		api
+			.adminMe()
+			.then(() => alive && setSession("authorized"))
+			.catch(() => {
+				api.setAdminToken(null);
+				if (alive) setSession("anonymous");
+			});
+		return () => {
+			alive = false;
+		};
+	}, [session]);
 
 	const handleLogout = () => {
+		api.setAdminToken(null);
+		localStorage.removeItem("platform_love_admin_pin");
 		navigate("/admin/login");
 	};
 
@@ -42,6 +65,29 @@ export default function AdminLayout() {
 	const closeSidebar = () => {
 		setSidebarOpen(false);
 	};
+
+	if (session === "anonymous") {
+		return <Navigate to="/admin/login" replace />;
+	}
+
+	if (session === "checking") {
+		return (
+			<div
+				style={{
+					minHeight: "100vh",
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					background: "#1A1A23",
+					color: "#fff",
+					fontFamily: "Inter, system-ui, sans-serif",
+					fontSize: 15,
+				}}
+			>
+				Проверяем доступ…
+			</div>
+		);
+	}
 
 	return (
 		<div

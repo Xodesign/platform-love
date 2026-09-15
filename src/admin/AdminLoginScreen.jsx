@@ -7,6 +7,21 @@ const LOGO_URL =
 
 const ADMIN_PIN_KEY = "platform_love_admin_pin";
 
+// PIN — второй фактор «на этом устройстве», а не способ входа вместо сервера.
+// Храним только отпечаток (SHA-256), чтобы код нельзя было прочитать из localStorage.
+async function hashPin(value) {
+	if (!globalThis.crypto?.subtle) return null;
+	const digest = await globalThis.crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(value),
+	);
+	return Array.from(new Uint8Array(digest))
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
+}
+
+const isPinStored = () => /^[a-f0-9]{64}$/.test(localStorage.getItem(ADMIN_PIN_KEY) || "");
+
 export default function AdminLoginScreen() {
 	const navigate = useNavigate();
 	const [step, setStep] = useState("credentials"); // credentials, create_pin, enter_pin
@@ -15,14 +30,15 @@ export default function AdminLoginScreen() {
 	const [pin, setPin] = useState(["", "", "", ""]);
 	const [error, setError] = useState("");
 	const [attempts, setAttempts] = useState(0);
+	// PIN принимается только после того, как сервер подтвердил email/пароль в этой сессии
+	const [credentialsVerified, setCredentialsVerified] = useState(false);
 	const pinInputRefs = useRef([]);
 
-	// Проверяем, установлен ли уже PIN
+	// Старый формат хранил PIN открытым текстом — убираем, попросим создать заново
 	useEffect(() => {
-		const savedPin = localStorage.getItem(ADMIN_PIN_KEY);
-
-		if (savedPin) {
-			setStep("enter_pin");
+		const saved = localStorage.getItem(ADMIN_PIN_KEY);
+		if (saved && !/^[a-f0-9]{64}$/.test(saved)) {
+			localStorage.removeItem(ADMIN_PIN_KEY);
 		}
 	}, []);
 
@@ -38,13 +54,15 @@ export default function AdminLoginScreen() {
 		try {
 			await api.adminLogin(email, password);
 		} catch (err) {
+			setCredentialsVerified(false);
 			setError(err.message || "Неверный email или пароль");
 			return;
 		}
 
-		const savedPin = localStorage.getItem(ADMIN_PIN_KEY);
+		// Сервер выпустил токен — теперь можно требовать и локальный PIN
+		setCredentialsVerified(true);
 
-		if (savedPin) {
+		if (isPinStored()) {
 			// PIN уже установлен - переходим к его вводу
 			setStep("enter_pin");
 			setPassword("");
@@ -90,7 +108,7 @@ export default function AdminLoginScreen() {
 		}
 	};
 
-	const handleCreatePin = () => {
+	const handleCreatePin = async () => {
 		const pinValue = pin.join("");
 		if (pinValue.length !== 4) {
 			setError("Введите 4 цифры");
@@ -101,23 +119,33 @@ export default function AdminLoginScreen() {
 			return;
 		}
 
-		// Сохраняем PIN
-		localStorage.setItem(ADMIN_PIN_KEY, pinValue);
+		const hash = await hashPin(pinValue);
+		// В небезопасном контексте crypto.subtle недоступен — тогда PIN не сохраняем,
+		// вход всё равно возможен по email/паролю
+		if (hash) localStorage.setItem(ADMIN_PIN_KEY, hash);
 
 		// Переходим в админку
 		navigate("/admin");
 	};
 
-	const handleEnterPin = () => {
+	const handleEnterPin = async () => {
+		if (!credentialsVerified) {
+			setStep("credentials");
+			setError("Сначала подтвердите email и пароль");
+			return;
+		}
+
 		const pinValue = pin.join("");
-		const savedPin = localStorage.getItem(ADMIN_PIN_KEY);
+		const savedHash = localStorage.getItem(ADMIN_PIN_KEY);
 
 		if (pinValue.length !== 4) {
 			setError("Введите 4 цифры");
 			return;
 		}
 
-		if (pinValue === savedPin) {
+		const hash = await hashPin(pinValue);
+
+		if (hash && hash === savedHash) {
 			setAttempts(0);
 			setPin(["", "", "", ""]);
 			navigate("/admin");
@@ -129,6 +157,7 @@ export default function AdminLoginScreen() {
 			if (newAttempts >= 3) {
 				// Слишком много попыток - требуем снова ввести email/password
 				setStep("credentials");
+				setCredentialsVerified(false);
 				setPin(["", "", "", ""]);
 				setAttempts(0);
 				setError("Слишком много попыток. Войдите снова.");
@@ -146,6 +175,7 @@ export default function AdminLoginScreen() {
 		setPassword("");
 		setError("");
 		setAttempts(0);
+		setCredentialsVerified(false);
 	};
 
 	// Ввод credentials
@@ -243,7 +273,7 @@ export default function AdminLoginScreen() {
 						</button>
 					</form>
 
-					{localStorage.getItem(ADMIN_PIN_KEY) && (
+					{isPinStored() && (
 						<button
 							onClick={resetPin}
 							style={{
@@ -258,7 +288,7 @@ export default function AdminLoginScreen() {
 								cursor: "pointer",
 							}}
 						>
-							🔑 Войти по PIN
+							🔑 Сбросить PIN на этом устройстве
 						</button>
 					)}
 				</div>

@@ -383,16 +383,6 @@ const PROFILE_FIELDS = [
 	{ key: "flowers", label: "Любимые цветы" },
 ];
 
-// Эмуляция загрузки изображения (base64)
-function loadImageAsBase64(file) {
-	return new Promise((resolve, reject) => {
-		const reader = new FileReader();
-		reader.onload = (e) => resolve(e.target.result);
-		reader.onerror = reject;
-		reader.readAsDataURL(file);
-	});
-}
-
 // Пресеты обложек
 const COVER_PRESETS = [
 	"https://storage.yandexcloud.net/promto-user-static-sites-prod/design-assets/909022946/8c7e6951-480b-46d6-8680-2024c7503c12/8c3316f7-df61-4d16-8d50-f599e5854813-Group_36.png",
@@ -418,35 +408,77 @@ export default function UserProfileScreen() {
 	const coverInputRef = useRef(null);
 	const photoInputRef = useRef(null);
 
+	// id пользователя с сервера — нужен, чтобы писать профиль обратно
+	const userIdRef = useRef(null);
+
 	// Загрузка данных профиля
 	useEffect(() => {
 		loadProfile();
 	}, []);
 
-	const loadProfile = () => {
-		const savedQuestionnaire = localStorage.getItem("userProfile");
-		const savedBasic = localStorage.getItem("basicProfile");
-		const savedGallery = localStorage.getItem("userGallery");
-		const savedCover = localStorage.getItem("userCover");
+	const readLocalProfile = () => {
+		const parse = (key, fallback) => {
+			try {
+				const raw = localStorage.getItem(key);
+				return raw ? JSON.parse(raw) : fallback;
+			} catch {
+				return fallback;
+			}
+		};
+		return {
+			questionnaire: parse("userProfile", {}),
+			basic: parse("basicProfile", {}),
+			gallery: parse("userGallery", []),
+			cover: localStorage.getItem("userCover") || COVER_URL,
+		};
+	};
 
-		const questionnaireData = savedQuestionnaire
-			? JSON.parse(savedQuestionnaire)
-			: {};
-		const basicData = savedBasic ? JSON.parse(savedBasic) : {};
-		const galleryData = savedGallery ? JSON.parse(savedGallery) : [];
+	const mergeProfile = (local, server = {}, answers = {}) => {
+		const merged = { ...DEFAULT_PROFILE };
+		for (const [key, value] of Object.entries(local.questionnaire)) {
+			if (value) merged[key] = value;
+		}
+		for (const [key, value] of Object.entries(local.basic)) {
+			if (value) merged[key] = value;
+		}
+		// Серверные ответы анкеты важнее локального кэша: они видны другим людям
+		for (const [key, value] of Object.entries(answers)) {
+			if (value) merged[key] = value;
+		}
+		if (server.name) merged.name = server.name;
+		if (server.location) merged.city = server.location;
+		return merged;
+	};
 
-		const mergedProfile = { ...DEFAULT_PROFILE };
-		Object.keys(questionnaireData).forEach((key) => {
-			if (questionnaireData[key]) mergedProfile[key] = questionnaireData[key];
-		});
-		Object.keys(basicData).forEach((key) => {
-			if (basicData[key]) mergedProfile[key] = basicData[key];
-		});
+	const loadProfile = async () => {
+		const local = readLocalProfile();
+		const localMerged = mergeProfile(local);
+		setProfile(localMerged);
+		setEditForm(localMerged);
+		setGallery(local.gallery);
+		setCover(local.cover);
 
-		setProfile(mergedProfile);
-		setGallery(galleryData.length > 0 ? galleryData : []);
-		setCover(savedCover || COVER_URL);
-		setEditForm(mergedProfile);
+		try {
+			const me = await api.getMe();
+			userIdRef.current = me.id;
+			const [serverProfile, answers] = await Promise.all([
+				api.getUser(me.id),
+				api.getAnswers().catch(() => ({})),
+			]);
+
+			const merged = mergeProfile(local, serverProfile, answers || {});
+			setProfile(merged);
+			setEditForm(merged);
+
+			const photos = Array.isArray(serverProfile.photos)
+				? serverProfile.photos
+				: [];
+			if (photos.length > 0) setGallery(photos);
+			if (serverProfile.settings?.cover) setCover(serverProfile.settings.cover);
+		} catch (err) {
+			// Сервер недоступен — остаёмся на локальном кэше, экран не падает
+			console.error("Профиль с сервера не загрузился:", err);
+		}
 	};
 
 	const saveProfile = (data) => {
@@ -501,37 +533,54 @@ export default function UserProfileScreen() {
 		}
 		if (Object.keys(answers).length > 0) {
 			api
-				.request("/filters/answers", {
-					method: "POST",
-					body: JSON.stringify({ answers }),
-				})
+				.saveAnswers(answers)
 				.catch((err) => console.error("Answers sync error:", err));
+		}
+
+		// Имя и город тоже должны жить на сервере —
+		// иначе в свайпах другим показывается старая запись из базы
+		if (userIdRef.current) {
+			api
+				.updateUser(userIdRef.current, {
+					name: data.name,
+					location: data.city,
+				})
+				.catch((err) => console.error("Profile sync error:", err));
 		}
 	};
 
-	const saveGallery = (newGallery) => {
+	const saveGallery = (newGallery, sync = true) => {
 		localStorage.setItem("userGallery", JSON.stringify(newGallery));
 		setGallery(newGallery);
+		if (sync && userIdRef.current) {
+			api
+				.updateUser(userIdRef.current, { photos: newGallery })
+				.catch((err) => console.error("Gallery sync error:", err));
+		}
 	};
 
 	const saveCover = (newCover) => {
 		localStorage.setItem("userCover", newCover);
 		setCover(newCover);
 		setIsCoverModalOpen(false);
+		if (userIdRef.current) {
+			api
+				.updateUser(userIdRef.current, { settings: { cover: newCover } })
+				.catch((err) => console.error("Cover sync error:", err));
+		}
 	};
 
-	// Обработка загрузки фото профиля (отправляем на сервер + сохраняем локально)
+	// Обработка загрузки фото профиля (аватар = первое фото в списке)
 	const handleAvatarUpload = async (e) => {
 		const file = e.target.files?.[0];
 		if (!file) return;
 
 		try {
-			// Отправляем на сервер — backend сам обновит users.photos
-			await api.uploadPhoto(file);
-			// Локально тоже сохраняем для отображения без перезагрузки
-			const base64 = await loadImageAsBase64(file);
-			const newGallery = [base64, ...gallery.filter((_, i) => i !== 0)];
-			saveGallery(newGallery);
+			// Backend сам дописывает фото в users.photos и возвращает полный список
+			const res = await api.uploadPhoto(file);
+			const photos = Array.isArray(res.photos) ? res.photos : [res.url];
+			const ordered = [res.url, ...photos.filter((p) => p !== res.url)];
+			saveGallery(ordered);
 		} catch (err) {
 			console.error("Ошибка загрузки фото:", err);
 		}
@@ -543,27 +592,30 @@ export default function UserProfileScreen() {
 		if (!file) return;
 
 		try {
-			const base64 = await loadImageAsBase64(file);
-			saveCover(base64);
+			const res = await api.uploadPhoto(file);
+			// Обложка не должна дублироваться в галерее
+			saveGallery(gallery.filter((p) => p !== res.url));
+			saveCover(res.url);
 		} catch (err) {
 			console.error("Ошибка загрузки обложки:", err);
 		}
 	};
 
-	// Обработка загрузки фото в галерею (отправляем на сервер + сохраняем локально)
+	// Обработка загрузки фото в галерею
 	const handlePhotoUpload = async (e) => {
 		const files = Array.from(e.target.files || []);
 		if (files.length === 0) return;
 
 		try {
-			// Отправляем каждое фото на сервер
+			let photos = gallery;
 			for (const file of files) {
-				await api.uploadPhoto(file);
+				const res = await api.uploadPhoto(file);
+				photos =
+					Array.isArray(res.photos) && res.photos.length > 0
+						? res.photos
+						: [...photos, res.url];
 			}
-			// Локально тоже сохраняем для отображения
-			const base64Photos = await Promise.all(files.map(loadImageAsBase64));
-			const newGallery = [...gallery, ...base64Photos].slice(0, 12);
-			saveGallery(newGallery);
+			saveGallery(photos.slice(0, 12));
 			setIsPhotoModalOpen(false);
 		} catch (err) {
 			console.error("Ошибка загрузки фото:", err);

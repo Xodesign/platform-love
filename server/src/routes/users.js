@@ -22,6 +22,8 @@ router.get("/:id", authenticateToken, (req, res) => {
 			gender: user.gender,
 			location: user.location,
 			photos: JSON.parse(user.photos || "[]"),
+			// settings нужен фронту, чтобы доставать оттуда обложку профиля
+			settings: JSON.parse(user.settings || "{}"),
 			latitude: user.latitude,
 			longitude: user.longitude,
 			is_premium: user.is_premium,

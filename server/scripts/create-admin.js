@@ -11,7 +11,9 @@ import db from "../src/db/database.js";
 const [email, password, name = "Администратор"] = process.argv.slice(2);
 
 if (!email || !email.includes("@")) {
-	console.error("Укажи email: node scripts/create-admin.js admin@example.ru <пароль> [имя]");
+	console.error(
+		"Укажи email: node scripts/create-admin.js admin@example.ru <пароль> [имя]",
+	);
 	process.exit(1);
 }
 if (!password || password.length < 8) {
@@ -23,11 +25,9 @@ const hash = bcrypt.hashSync(password, 10);
 const existing = db.prepare("SELECT id FROM admins WHERE email = ?").get(email);
 
 if (existing) {
-	db.prepare("UPDATE admins SET password = ?, name = COALESCE(?, name) WHERE id = ?").run(
-		hash,
-		name,
-		existing.id,
-	);
+	db.prepare(
+		"UPDATE admins SET password = ?, name = COALESCE(?, name) WHERE id = ?",
+	).run(hash, name, existing.id);
 	console.log(`✔ Пароль администратора ${email} обновлён (id=${existing.id})`);
 } else {
 	const id = randomUUID();
@@ -38,4 +38,6 @@ if (existing) {
 	console.log(`✔ Администратор ${email} создан (id=${id}, роль owner)`);
 }
 
-console.log(`   админов в базе теперь: ${db.prepare("SELECT count(*) c FROM admins").get().c}`);
+console.log(
+	`   админов в базе теперь: ${db.prepare("SELECT count(*) c FROM admins").get().c}`,
+);

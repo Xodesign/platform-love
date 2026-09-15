@@ -1,13 +1,9 @@
 const API_URL = "/api";
 
 class ApiService {
-	constructor() {
-		this.token = localStorage.getItem("token");
-		this.adminToken = localStorage.getItem("admin_token");
-	}
-
-	// Токен всегда читаем актуальным: вход меняет localStorage без перезагрузки SPA,
-	// иначе все запросы после логина уходили бы анонимно.
+	// Токены намеренно не кэшируются в полях: вход/выход меняют localStorage
+	// без перезагрузки SPA, и любое чтение устаревшего поля отправляло бы
+	// запросы анонимно. Единственный источник истины — геттеры ниже.
 	get authToken() {
 		return localStorage.getItem("token");
 	}
@@ -17,7 +13,6 @@ class ApiService {
 	}
 
 	setToken(token) {
-		this.token = token;
 		if (token) {
 			localStorage.setItem("token", token);
 		} else {
@@ -76,7 +71,6 @@ class ApiService {
 
 	// ---- Admin ----
 	setAdminToken(token) {
-		this.adminToken = token;
 		if (token) localStorage.setItem("admin_token", token);
 		else localStorage.removeItem("admin_token");
 	}
@@ -101,6 +95,16 @@ class ApiService {
 		});
 		this.setAdminToken(data.token);
 		return data;
+	}
+
+	// Проверка живой сессии админа — нужно для guards, токен из localStorage
+	// сам по себе ничего не доказывает.
+	adminMe() {
+		return this.adminRequest("/me");
+	}
+
+	adminLogout() {
+		this.setAdminToken(null);
 	}
 
 	adminStats() {
@@ -269,6 +273,18 @@ class ApiService {
 	}
 
 	// Swipes
+	// Ответы анкеты — серверный источник истины для совместимости
+	getAnswers() {
+		return this.request("/filters/answers");
+	}
+
+	saveAnswers(answers) {
+		return this.request("/filters/answers", {
+			method: "POST",
+			body: JSON.stringify({ answers }),
+		});
+	}
+
 	async getCandidates() {
 		return this.request("/filters/candidates");
 	}
@@ -337,7 +353,7 @@ class ApiService {
 		const response = await fetch(`${API_URL}/upload/photo`, {
 			method: "POST",
 			headers: {
-				Authorization: `Bearer ${this.token}`,
+				Authorization: `Bearer ${this.authToken}`,
 			},
 			body: formData,
 		});
