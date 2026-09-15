@@ -53,9 +53,10 @@ keystore.properties
 *.sqlite-shm
 *.sqlite-wal
 
-# Загрузки пользователей
-uploads/*
-!uploads/.gitkeep
+# Загрузки пользователей: каталог есть и в корне, и в server/ — правило без
+# ведущего слэша матчится только относительно корня, поэтому нужен **
+**/uploads/*
+!**/uploads/.gitkeep
 
 # Сборки Android
 *.apk

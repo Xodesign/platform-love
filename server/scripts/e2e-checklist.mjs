@@ -655,11 +655,14 @@ async function main() {
     `DELETE FROM users WHERE id IN (${ids.map(() => "?").join(",")})`,
   ).run(...ids);
   rw.close();
-  if (up.json?.url) {
-    const f = path.join(__dirname, "..", "uploads", path.basename(up.json.url));
+  // За файлами из проверок загрузки тоже надо прибраться: иначе в server/uploads
+  // копятся артефакты, а deploy.sh отказывается выкладывать «грязное» дерево.
+  for (const ref of [up.json?.url, evil.json?.url]) {
+    if (!ref) continue;
+    const f = path.join(__dirname, "..", "uploads", path.basename(ref));
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }
-  ok("тестовые аккаунты e2e удалены");
+  ok("тестовые аккаунты и загруженные файлы удалены");
 
   console.log(
     `\n\x1b[1mИТОГ: ${pass}/${pass + fail} passed\x1b[0m${fail ? " \x1b[31m⚠\x1b[0m" : " \x1b[32m✅\x1b[0m"}\n`,
