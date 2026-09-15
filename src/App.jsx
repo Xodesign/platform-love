@@ -14,6 +14,7 @@ import {
 	Navigate,
 	Outlet,
 	useNavigate,
+	useLocation,
 } from "react-router-dom";
 import OnboardingScreen, { isOnboardingDone } from "./OnboardingScreen";
 import MainMenuScreen from "./MainMenuScreen";
@@ -1172,7 +1173,9 @@ function QuestionScreen() {
 // Login Screen
 function LoginScreen() {
 	// Если на этом устройстве уже входили по PIN — начинаем сразу с PIN
-	const [login, setLogin] = useState(() => localStorage.getItem("pin_login") || "");
+	const [login, setLogin] = useState(
+		() => localStorage.getItem("pin_login") || "",
+	);
 	const [password, setPassword] = useState("");
 	const [pin, setPin] = useState("");
 	const [step, setStep] = useState(() =>
@@ -1889,7 +1892,8 @@ function SetPinScreen() {
 				if (me.login) localStorage.setItem("pin_login", me.login);
 				// Отмечаем у себя, что PIN больше не ждём
 				me.hasPin = true;
-				if (typeof data.hasProfile === "boolean") me.hasProfile = data.hasProfile;
+				if (typeof data.hasProfile === "boolean")
+					me.hasProfile = data.hasProfile;
 				localStorage.setItem("user", JSON.stringify(me));
 				const hasProfile =
 					typeof data.hasProfile === "boolean"
@@ -1904,6 +1908,23 @@ function SetPinScreen() {
 		} finally {
 			setLoading(false);
 		}
+	};
+
+	// Выход с экрана установки PIN: сессия сбрасывается, аккаунт остаётся
+	const handleExit = async () => {
+		const token = localStorage.getItem("token");
+		try {
+			await fetch("/api/auth/logout", {
+				method: "POST",
+				headers: { Authorization: `Bearer ${token}` },
+			});
+		} catch {
+			// Сервер недоступен — локальную сессию всё равно снимаем
+		}
+		localStorage.removeItem("token");
+		localStorage.removeItem("user");
+		localStorage.removeItem("pin_login");
+		navigate("/", { replace: true });
 	};
 
 	return (
@@ -1944,8 +1965,8 @@ function SetPinScreen() {
 						textAlign: "center",
 					}}
 				>
-					4 цифры — с ними вы и будете входить. Забыли? Восстанавливаете
-					почтой, которую указали при регистрации.
+					4 цифры — с ними вы и будете входить. Забыли? Восстанавливаете почтой,
+					которую указали при регистрации.
 				</p>
 				<form onSubmit={handleSetPin} style={{ width: "100%" }}>
 					<div style={{ marginBottom: 16 }}>
@@ -2032,6 +2053,21 @@ function SetPinScreen() {
 						{loading ? "Сохранение..." : "Сохранить PIN"}
 					</button>
 				</form>
+				{/* Без PIN внутрь не пускаем, но и в ловушке держать не должны */}
+				<button
+					onClick={handleExit}
+					style={{
+						marginTop: 16,
+						background: "none",
+						border: "none",
+						color: "#7B5EA7",
+						fontSize: 14,
+						textDecoration: "underline",
+						cursor: "pointer",
+					}}
+				>
+					Передумали? Выйти и войти позже
+				</button>
 			</div>
 		</div>
 	);
@@ -2876,8 +2912,16 @@ function RouteFallback() {
 }
 
 function RequireAuth() {
+	const location = useLocation();
 	if (!localStorage.getItem("token")) {
 		return <Navigate to="/" replace />;
+	}
+	// PIN — обязательный шаг входа. Раньше проверка жила только на «/», и
+	// зарегистрированный, но не задавший PIN пользователь мог открыть /menu
+	// напрямую по URL. Экран установки PIN при этом остаётся доступным.
+	const me = JSON.parse(localStorage.getItem("user") || "{}");
+	if (me.hasPin === false && location.pathname !== "/set-pin") {
+		return <Navigate to="/set-pin" replace />;
 	}
 	return <Outlet />;
 }
@@ -2916,7 +2960,7 @@ function App() {
 
 						{/* Экраны, требующие входа */}
 						<Route element={<RequireAuth />}>
-						<Route path="/set-pin" element={<SetPinScreen />} />
+							<Route path="/set-pin" element={<SetPinScreen />} />
 							<Route path="/profile" element={<ProfileScreen />} />
 							<Route path="/questions" element={<QuestionScreen />} />
 							<Route path="/menu" element={<MainMenuScreen />} />
