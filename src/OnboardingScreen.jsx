@@ -47,7 +47,7 @@ export function finishOnboarding() {
 	}
 }
 
-export default function OnboardingScreen() {
+export default function OnboardingScreen({ onFinish }) {
 	const navigate = useNavigate();
 	const [index, setIndex] = useState(0);
 	const scrollRef = useRef(null);
@@ -64,8 +64,16 @@ export default function OnboardingScreen() {
 
 	const complete = useCallback(() => {
 		finishOnboarding();
+		// На «/» онбординг рендерит RootGate, и navigate("/") в тот же адрес
+		// экран не перерисовывает: «Пропустить» жмёшь, а форма входа так и не
+		// появляется. Поэтому, когда родитель дал колбэк, зовём его, а
+		// navigate остаётся для явного маршрута /onboarding.
+		if (onFinish) {
+			onFinish();
+			return;
+		}
 		navigate("/", { replace: true });
-	}, [navigate]);
+	}, [navigate, onFinish]);
 
 	// Клавиатура (десктоп/превью)
 	useEffect(() => {

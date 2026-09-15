@@ -2928,8 +2928,12 @@ function RequireAuth() {
 
 // Первый запуск: показываем онбординг, дальше — вход или уже готовый аккаунт
 function RootGate() {
-	if (!isOnboardingDone()) {
-		return <OnboardingScreen />;
+	// Флаг живёт в state: «Пропустить» пишет localStorage, а navigate("/")
+	// в тот же адрес RootGate не перерисовывает, и форма входа не появлялась
+	// до ручной перезагрузки.
+	const [onboarded, setOnboarded] = useState(() => isOnboardingDone());
+	if (!onboarded) {
+		return <OnboardingScreen onFinish={() => setOnboarded(true)} />;
 	}
 	if (localStorage.getItem("token")) {
 		const me = JSON.parse(localStorage.getItem("user") || "{}");
