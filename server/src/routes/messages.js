@@ -51,6 +51,14 @@ router.post('/', authenticateToken, requirePin, (req, res) => {
       return res.status(400).json({ error: 'match_id и text обязательны' });
     }
 
+    const trimmed = String(text).trim();
+    if (!trimmed) {
+      return res.status(400).json({ error: 'Сообщение не может быть пустым' });
+    }
+    if (trimmed.length > 10000) {
+      return res.status(400).json({ error: 'Сообщение слишком длинное' });
+    }
+
     // Проверяем доступ к мэтчу
     const match = db.prepare(
       'SELECT id FROM matches WHERE id = ? AND (user1_id = ? OR user2_id = ?)'

@@ -95,6 +95,27 @@ router.post('/', authenticateToken, requirePin, (req, res) => {
           VALUES (?, ?, ?)
         `).run(matchId, userId, target_user_id);
 
+        // Уведомляем обоих о совпадении — иначе мэтч виден только в /matches,
+        // а на экране уведомлений (и в счётчике) ничего не появляется.
+        const notify = db.prepare(`
+          INSERT INTO notifications (id, user_id, type, text, is_read)
+          VALUES (?, ?, 'match', ?, 0)
+        `);
+        const swiperName =
+          db.prepare('SELECT name FROM users WHERE id = ?').get(userId)?.name || 'Пользователь';
+        const targetName =
+          db.prepare('SELECT name FROM users WHERE id = ?').get(target_user_id)?.name || 'Пользователь';
+        notify.run(
+          uuidv4(),
+          target_user_id,
+          `У вас новый мэтч с ${swiperName}! Напишите первым.`,
+        );
+        notify.run(
+          uuidv4(),
+          userId,
+          `У вас новый мэтч с ${targetName}! Напишите первым.`,
+        );
+
         match = { id: matchId, matched: true };
       }
     }

@@ -17,6 +17,10 @@
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <!-- Фон-заливка заставки: фирменный цвет, без растяжения bitmap -->
+        <item name="android:windowBackground">@drawable/splash</item>
         <item name="android:background">@drawable/splash</item>
+        <!-- После заставки возвращаемся к обычной теме приложения -->
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

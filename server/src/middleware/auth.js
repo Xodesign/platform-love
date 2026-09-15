@@ -1,7 +1,14 @@
 import jwt from "jsonwebtoken";
 import db from "../db/database.js";
 
+// В продакшене JWT_SECRET обязан быть задан в env: без него токены
+// подписываются публично известным ключом, и любой может подделать JWT
+// (включая роль админа). В dev-режиме фолбэк допустим, но прод должен падать.
 const JWT_SECRET = process.env.JWT_SECRET || "platform-love-secret-key-2024";
+if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+	console.error("\nFATAL: JWT_SECRET не задан в продакшене — запуск невозможен.\n");
+	process.exit(1);
+}
 
 export function authenticateToken(req, res, next) {
 	const authHeader = req.headers["authorization"];
