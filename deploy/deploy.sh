@@ -156,7 +156,8 @@ if ! cmp -s /tmp/platformlove-unit.${TS} /etc/systemd/system/${SERVICE}; then \
 else rm -f /tmp/platformlove-unit.${TS}; echo '  ✔ unit актуален'; fi; \
 chown -R www-data:www-data ${APP_DIR}/server; \
 chmod 600 ${APP_DIR}/server/.env 2>/dev/null || true; \
-echo '  ✔ server/ принадлежит www-data, .env — 600'" ||
+chmod 640 ${APP_DIR}/server/database.sqlite* 2>/dev/null || true; \
+echo '  ✔ server/ — www-data, .env — 600, база — 640'" ||
 	die "Не удалось применить unit/права"
 RSH "set -e; systemctl restart ${SERVICE}; sleep 4; \
 systemctl is-active --quiet ${SERVICE} && echo '  ✔ сервис active' || { journalctl -u ${SERVICE} -n 15 --no-pager; exit 1; }" ||
