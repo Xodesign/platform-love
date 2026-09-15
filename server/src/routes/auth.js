@@ -31,7 +31,9 @@ router.post("/register", async (req, res) => {
 		if (!normalizedEmail) {
 			return res
 				.status(400)
-				.json({ error: "Укажите email — на него придёт код восстановления доступа" });
+				.json({
+					error: "Укажите email — на него придёт код восстановления доступа",
+				});
 		}
 		if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(normalizedEmail)) {
 			return res.status(400).json({ error: "Похоже, в email опечатка" });
@@ -518,7 +520,12 @@ router.post("/reset-password", async (req, res) => {
 
 		res.json({
 			success: true,
-			message: newPassword && pin ? "Пароль и PIN обновлены" : newPassword ? "Пароль изменён" : "PIN изменён",
+			message:
+				newPassword && pin
+					? "Пароль и PIN обновлены"
+					: newPassword
+						? "Пароль изменён"
+						: "PIN изменён",
 			passwordChanged: !!newPassword,
 			pinChanged: !!pin,
 		});
