@@ -1,105 +1,102 @@
-# Развертывание Platform Love на VPS
+# Деплой PlatformLove
 
-## Информация о сервере
+## Куда деплоим (актуально на 2026-09-15)
 
-- **IP:** `5.101.152.161`
-- **Домен:** `platformlove.com`
-- **Путь на сервере:** `/var/www/platformlove.com`
-- **Backend порт:** `3001`
-- **Frontend порт:** `80` (nginx)
+| Параметр | Значение |
+| --- | --- |
+| VPS | **id 7924729**, hostname `cv7924729.novalocal` |
+| IP | `80.78.244.136` |
+| Домен | `platformlove.com` |
+| Боевой каталог | `/var/www/platformlove.com` |
+| Backend | systemd `platformlove-backend.service` → `127.0.0.1:3001` |
+| Frontend | nginx `root /var/www/platformlove.com/dist` |
+| БД | `/var/www/platformlove.com/server/database.sqlite` (SQLite, живые пользователи) |
+| Загрузки | `/var/www/platformlove.com/server/uploads/` |
+| Бэкапы | `/root/backups/` |
 
-## Подготовка (уже сделано)
+⚠️ **Старый адрес `5.101.152.161` (BeGet, хост `gagarin7`) больше не используется.**
+В скриптах и инструкциях до 15 сентября был прописан именно он — деплой на него
+уходил в пустоту. Ключ SSH туда не подходит.
 
-✅ Frontend build готов в `dist/`
-✅ Backend готов
-✅ Nginx конфиг создан: `deploy/nginx-platformlove.conf`
-✅ Systemd сервис создан: `deploy/platformlove-backend.service`
+⚠️ **Раньше на сервере было две копии приложения**: `/var/www/platformlove.com`
+(к ней шёл nginx) и `/var/www/platform-love` (сервис на `:3000`, снаружи недоступен,
+0 пользователей). Вторая отключена и переименована в
+`/var/www/platform-love.DISABLED-2026-09-15`. Теперь боевая копия одна.
 
-## Шаг 1: Загрузить файлы на VPS
+## Одна команда
 
-Подключись к VPS по SSH:
 ```bash
-ssh root@5.101.152.161
+bash deploy/deploy.sh
 ```
 
-Создай папку для приложения:
+Что делает скрипт:
+
+1. проверяет, что рабочее дерево git чистое;
+2. собирает frontend **локально** (на VPS ~1 ГБ RAM — сборка там его валит);
+3. бэкапит боевую БД и текущий код в `/root/backups/db_<ts>.sqlite`, `code_<ts>.tar.gz`;
+4. выкладывает `dist/`, `server/src/`, `server/package.json`, `server/scripts/create-admin.js`;
+5. применяет идемпотентную миграцию схемы;
+6. перезапускает сервис;
+7. проверяет здоровье изнутри (`127.0.0.1:3001/api/health`) и снаружи (`https://platformlove.com/api/health`),
+   наличие онбординг-ассетов и новых маршрутов;
+8. **если проверка провалилась — автоматически откатывает код и БД из бэкапа**.
+
+Флаги:
+
 ```bash
-mkdir -p /var/www/platformlove.com
+bash deploy/deploy.sh --skip-build    # выложить уже собранный dist
+bash deploy/deploy.sh --push          # после успешного деплоя сделать git push
+bash deploy/deploy.sh --no-git-check  # разрешить деплой с незакоммиченными правками
 ```
 
-Локально (в отдельном терминале) загрузи файлы:
-```bash
-# Frontend build + backend
-scp -r /home/user/platform-love-app/dist root@5.101.152.161:/var/www/platformlove.com/
-scp -r /home/user/platform-love-app/server root@5.101.152.161:/var/www/platformlove.com/
-scp /home/user/platform-love-app/package.json root@5.101.152.161:/var/www/platformlove.com/
-scp -r /home/user/platform-love-app/src root@5.101.152.161:/var/www/platformlove.com/
-scp -r /home/user/platform-love-app/public root@5.101.152.161:/var/www/platformlove.com/
-scp /home/user/platform-love-app/vite.config.js root@5.101.152.161:/var/www/platformlove.com/
+## Чего деплой сознательно не делает
 
-# .env с реальными данными
-scp /home/user/platform-love-app/server/.env root@5.101.152.161:/var/www/platformlove.com/server/
+- **Не запускает `server/scripts/seed.js`.** Он начинается с `DELETE FROM` по таблицам
+  и на боевой базе уничтожил бы реальных пользователей. Сид — только для локальной разработки.
+- **Не трогает** `server/.env`, `server/database.sqlite`, `server/uploads/`.
+- Не настраивает TLS: сертификат для `platformlove.com` уже выдан certbot'ом, nginx слушает 80/443.
 
-# Конфиги
-scp /home/user/platform-love-app/deploy/nginx-platformlove.conf root@5.101.152.161:/etc/nginx/sites-available/platformlove.com
-scp /home/user/platform-love-app/deploy/platformlove-backend.service root@5.101.152.161:/etc/systemd/system/
-```
+## Администратор
 
-## Шаг 2: Установить зависимости на VPS
+На боевом сервере админ заводится скриптом, а не сидом:
 
 ```bash
-ssh root@5.101.152.161
-cd /var/www/platformlove.com
-npm install
-cd server
-npm install
-```
-
-## Шаг 3: Инициализировать БД
-
-```bash
+ssh root@80.78.244.136
 cd /var/www/platformlove.com/server
-node src/db/init.js
+node scripts/create-admin.js admin@example.ru '<пароль от 8 символов>' 'Имя'
 ```
 
-## Шаг 4: Запустить nginx
+Скрипт работает только с таблицей `admins` и безопасен для боевой БД: повторный запуск
+с тем же email обновляет пароль, а не создаёт дубль.
+
+## Безопасность
+
+Файл `deploy/expect_deploy.exp` содержал **root-пароль сервера открытым текстом**
+и был в репозитории GitHub. Удалён из кода и из репозитория 15.09.2026, `*.exp`
+добавлены в `.gitignore`. Пароль на сервере **нужно сменить**, потому что он
+оставался в истории git-коммитов. Доступ к серверу дальше — только по SSH-ключу
+(`~/.ssh/id_rsa`), который скрипт использует через `BatchMode`.
+
+Никогда не коммитьте: `.env`, `server/.env`, `*.sqlite`, `uploads/`, `*.apk`,
+ключи `id_rsa`/`*.pem` — всё это уже закрыто в `.gitignore`.
+
+## Ручная диагностика
 
 ```bash
-ln -sf /etc/nginx/sites-available/platformlove.com /etc/nginx/sites-enabled/platformlove.com
-nginx -t
-systemctl reload nginx
+ssh root@80.78.244.136
+systemctl status platformlove-backend.service
+journalctl -u platformlove-backend.service -n 50 --no-pager
+ss -ltnp | grep -E ':80|:443|:3001'
+ls -la /root/backups
+nginx -T | grep -E 'root|proxy_pass|server_name'
 ```
 
-## Шаг 5: Запустить backend как systemd сервис
+Откат вручную:
 
 ```bash
-systemctl daemon-reload
-systemctl enable platformlove-backend
-systemctl start platformlove-backend
-systemctl status platformlove-backend
-```
-
-## Шаг 6: SSL сертификат (Let's Encrypt)
-
-```bash
-apt install certbot python3-certbot-nginx -y
-certbot --nginx -d platformlove.com -d www.platformlove.com
-```
-
-## Проверка
-
-Открой https://platformlove.com — должно работать.
-
-## Автозапуск
-
-Backend работает через systemd — автоматически запускается при перезагрузке VPS.
-
-## Логи
-
-```bash
-# Backend логи
-journalctl -u platformlove-backend -f
-
-# Nginx логи
-tail -f /var/log/nginx/error.log
+cd /var/www/platformlove.com
+tar xzf /root/backups/code_<ts>.tar.gz -C /var/www/platformlove.com
+cp /root/backups/db_<ts>.sqlite server/database.sqlite
+rm -f server/database.sqlite-wal server/database.sqlite-shm
+systemctl restart platformlove-backend.service
 ```
