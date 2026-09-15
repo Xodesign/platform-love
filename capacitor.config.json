@@ -1,0 +1,15 @@
+{
+  "appId": "com.platformlove.app",
+  "appName": "Platform Love",
+  "webDir": "dist",
+  "server": {
+    "url": "https://platformlove.com",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "android": {
+    "backgroundColor": "#863bff",
+    "allowMixedContent": false
+  },
+  "plugins": {}
+}

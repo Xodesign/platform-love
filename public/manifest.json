@@ -1,0 +1,21 @@
+{
+  "name": "Platform Love",
+  "short_name": "Love",
+  "description": "Dating app for finding your perfect match",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#863bff",
+  "theme_color": "#863bff",
+  "orientation": "portrait",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["dating", "social", "lifestyle"],
+  "lang": "ru"
+}

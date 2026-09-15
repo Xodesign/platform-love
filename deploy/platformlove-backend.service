@@ -1,0 +1,30 @@
+# Systemd сервис для backend Node.js
+# Поместить в /etc/systemd/system/platformlove-backend.service
+# Затем:
+#   systemctl daemon-reload
+#   systemctl enable platformlove-backend
+#   systemctl start platformlove-backend
+#   systemctl status platformlove-backend
+
+[Unit]
+Description=Platform Love Backend API
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/platformlove.com/server
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=platformlove-backend
+
+# Лимиты
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

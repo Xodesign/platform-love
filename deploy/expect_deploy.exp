@@ -1,0 +1,38 @@
+#!/usr/bin/expect -f
+set timeout 600
+set password "dJAVXYjQrCb1Rpb0"
+set host "80.78.244.136"
+set user "root"
+
+# Команды которые нужно выполнить
+set commands {
+    "set -e"
+    "mkdir -p /var/www/platformlove.com/server"
+    "cd /var/www/platformlove.com"
+    "apt-get update -qq"
+    "apt-get install -y -qq nginx nodejs npm certbot python3-certbot-nginx"
+    "echo '=== Checking nginx ===' "
+    "systemctl enable nginx"
+    "systemctl start nginx"
+    "node --version"
+    "npm --version"
+}
+
+spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no $user@$host
+
+expect {
+    "password:" {
+        send "$password\r"
+    }
+    timeout { exit 1 }
+}
+
+expect "# "
+
+foreach cmd $commands {
+    send "$cmd\r"
+    expect "# " timeout { exit 2 }
+}
+
+send "exit\r"
+expect eof

@@ -1,0 +1,73 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ============================================================
+# СЕКРЕТЫ — никогда не коммитить
+# ============================================================
+.env
+.env.*
+!.env.example
+server/.env
+server/.env.*
+!server/.env.example
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+*.p8
+*.p12
+*.jks
+*.keystore
+keystore.properties
+
+# ============================================================
+# Данные и артефакты (не исходники)
+# ============================================================
+# База данных (в т.ч. боевая) — только структура живёт в migrate.js
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.sqlite-shm
+*.sqlite-wal
+
+# Загрузки пользователей
+uploads/*
+!uploads/.gitkeep
+
+# Сборки Android
+*.apk
+*.aab
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+.cxx/
+
+# Прочие артефакты
+/promto/
+.screenshots/
+*.tsbuildinfo
+coverage/

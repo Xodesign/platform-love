@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+    <rect width="512" height="512" fill="#863bff" rx="64"/>
+    <rect x="64" y="64" width="384" height="384" fill="white" rx="32"/>
+    <!-- Сердечко -->
+    <path d="M256 160 L320 224 C340 244 360 280 360 320 C360 380 316 420 256 480 C196 420 152 380 152 320 C152 280 172 244 192 224 L256 160 Z" fill="#FF6B9D"/>
+    <!-- Искорки -->
+    <circle cx="380" cy="140" r="16" fill="#FFD700"/>
+    <circle cx="420" cy="200" r="12" fill="#FFD700"/>
+    <circle cx="100" cy="180" r="12" fill="#FFD700"/>
+  </svg>
