@@ -255,135 +255,6 @@ router.post("/login-pin", async (req, res) => {
 });
 
 // ============================================
-// ВХОД ПО СМС: ОТПРАВКА И ПРОВЕРКА КОДА
-// ============================================
-
-const normalizePhone = (p) => String(p || "").replace(/\D/g, "");
-const PHONE_SQL = `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'(',''),')',''),'+','')`;
-const CODE_PHONE_SQL = `REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'+','')`;
-const MAX_ATTEMPTS = 5;
-
-router.post("/send-code", (req, res) => {
-	try {
-		const digits = normalizePhone(req.body?.phone);
-		if (digits.length < 10) {
-			return res.status(400).json({ error: "Некорректный номер телефона" });
-		}
-
-		// Инвалидируем предыдущие активные кода этого номера
-		db.prepare(
-			`UPDATE verification_codes SET verified = 1 WHERE ${CODE_PHONE_SQL} = ? AND verified = 0`,
-		).run(digits);
-
-		const code = String(Math.floor(1000 + Math.random() * 9000));
-		const now = new Date();
-		db.prepare(
-			`INSERT INTO verification_codes (id, phone, code, attempts, expires_at, verified, created_at)
-		     VALUES (?,?,?,?,?,?,?)`,
-		).run(
-			uuidv4(),
-			digits,
-			code,
-			0,
-			new Date(now.getTime() + 5 * 60 * 1000).toISOString(),
-			0,
-			now.toISOString(),
-		);
-
-		// Отправка SMS — зона ответственности провайдера (SMS.Io, Twilio и т.п.).
-		// В не-продакшене возвращаем код в ответе, чтобы флоу можно было проверить.
-		const debug_code = process.env.NODE_ENV === "production" ? undefined : code;
-
-		res.json({ success: true, message: "Код отправлен", debug_code });
-	} catch (error) {
-		console.error("Send code error:", error);
-		res.status(500).json({ error: "Ошибка отправки кода" });
-	}
-});
-
-router.post("/verify-code", (req, res) => {
-	try {
-		const digits = normalizePhone(req.body?.phone);
-		const submitted = String(req.body?.code || "").trim();
-
-		if (!digits || !submitted) {
-			return res.status(400).json({ error: "Нужны номер и код" });
-		}
-
-		const row = db
-			.prepare(
-				`SELECT * FROM verification_codes WHERE ${CODE_PHONE_SQL} = ? AND verified = 0 ORDER BY rowid DESC LIMIT 1`,
-			)
-			.get(digits);
-
-		if (!row) {
-			return res.status(400).json({ error: "Код не запрашивался" });
-		}
-		if (row.attempts >= MAX_ATTEMPTS) {
-			db.prepare("UPDATE verification_codes SET verified = 1 WHERE id = ?").run(
-				row.id,
-			);
-			return res
-				.status(400)
-				.json({ error: "Слишком много попыток. Запросите новый код" });
-		}
-		if (new Date(row.expires_at) < new Date()) {
-			return res.status(400).json({ error: "Код истёк, запросите новый" });
-		}
-		if (row.code !== submitted) {
-			db.prepare(
-				"UPDATE verification_codes SET attempts = attempts + 1 WHERE id = ?",
-			).run(row.id);
-			return res.status(400).json({ error: "Неверный код" });
-		}
-
-		db.prepare("UPDATE verification_codes SET verified = 1 WHERE id = ?").run(
-			row.id,
-		);
-
-		let user = db
-			.prepare(`SELECT * FROM users WHERE ${PHONE_SQL} = ?`)
-			.get(digits);
-		let isNew = false;
-
-		if (!user) {
-			const id = uuidv4();
-			db.prepare(
-				`INSERT INTO users (id, phone, name, login, created_at)
-			     VALUES (?,?,?,?,?)`,
-			).run(
-				id,
-				req.body.phone,
-				"Пользователь",
-				`user${digits.slice(-6)}`,
-				new Date().toISOString(),
-			);
-			user = db.prepare("SELECT * FROM users WHERE id = ?").get(id);
-			isNew = true;
-		}
-
-		const token = generateToken(user.id);
-
-		res.json({
-			token,
-			user: {
-				id: user.id,
-				login: user.login,
-				email: user.email,
-				name: user.name,
-				phone: user.phone,
-				hasPin: !!user.pin_code,
-				hasProfile: !!user.age,
-				is_new: isNew,
-			},
-		});
-	} catch (error) {
-		console.error("Verify code error:", error);
-		res.status(500).json({ error: "Ошибка проверки кода" });
-	}
-});
-
-// ============================================
 // СБРОС ПАРОЛЯ - ПО ЛОГИНУ (отправляет на email)
 // ============================================
 
@@ -411,7 +282,8 @@ router.post("/forgot-password", async (req, res) => {
 
 		if (!user.email) {
 			return res.status(400).json({
-				error: "У этого аккаунта не привязан email. Обратитесь в поддержку.",
+				error:
+					"К аккаунту не привязана почта. Войдите по логину и паролю, добавьте email в Настройках → Электронная почта — после этого восстановление станет доступно.",
 			});
 		}
 
@@ -485,13 +357,17 @@ router.post("/reset-password", async (req, res) => {
 			return res.status(400).json({ error: "Пользователь не найден" });
 		}
 
-		// Ищем код
+		// Ищем код. Сравнение идёт в одном формате (ISO), иначе строка вида
+		// "2026-09-15T04:31:00.000Z" всегда оказывается «больше» результата
+		// datetime('now') = "2026-09-15 04:59:00" из-за разделения T/пробелом,
+		// и код переживал свои 15 минут до самой полуночи.
 		const resetRecord = db
 			.prepare(`
       SELECT * FROM password_reset_codes 
-      WHERE email = ? AND code = ? AND used = 0 AND expires_at > datetime('now')
+      WHERE email = ? AND code = ? AND used = 0 AND expires_at > ?
+      ORDER BY rowid DESC LIMIT 1
     `)
-			.get(user.email, code);
+			.get(user.email, code, new Date().toISOString());
 
 		if (!resetRecord) {
 			return res.status(400).json({ error: "Неверный или просроченный код" });
@@ -532,6 +408,162 @@ router.post("/reset-password", async (req, res) => {
 	} catch (error) {
 		console.error("Reset password error:", error);
 		res.status(500).json({ error: "Ошибка при сбросе пароля" });
+	}
+});
+
+// ============================================
+// ПРИВЯЗКА / СМЕНА EMAIL
+// ============================================
+// Почта — единственный канал восстановления доступа. Ранние аккаунты
+// регистривались без неё, и их владельцы не могли ничего восстановить.
+// Добавить или сменить email можно только подтверждением на новом адресе,
+// иначе доступ к чужому аккаунту передаётся простой сменой поля.
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
+const EMAIL_CODE_TTL_MIN = 15;
+const EMAIL_CODE_MAX_ATTEMPTS = 5;
+
+router.post("/email/request", authenticateToken, async (req, res) => {
+	try {
+		const email = (req.body?.email || "").trim().toLowerCase();
+		const userId = req.user.id;
+
+		if (!email) {
+			return res.status(400).json({ error: "Укажите email" });
+		}
+		if (!EMAIL_RE.test(email)) {
+			return res.status(400).json({ error: "Похоже, в email опечатка" });
+		}
+
+		const user = db
+			.prepare("SELECT id, name, email FROM users WHERE id = ?")
+			.get(userId);
+		if (!user) {
+			return res.status(404).json({ error: "Пользователь не найден" });
+		}
+		if (user.email === email) {
+			return res
+				.status(400)
+				.json({ error: "Эта почта уже привязана к аккаунту" });
+		}
+		const taken = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
+		if (taken) {
+			return res
+				.status(400)
+				.json({ error: "Такой email уже занят другим аккаунтом" });
+		}
+
+		const code = Math.floor(100000 + Math.random() * 900000).toString();
+		const expiresAt = new Date(
+			Date.now() + EMAIL_CODE_TTL_MIN * 60 * 1000,
+		).toISOString();
+
+		// Новый запрос делает прежние коды этого пользователя недействительными
+		db.prepare(
+			"UPDATE email_change_codes SET used = 1 WHERE user_id = ? AND used = 0",
+		).run(userId);
+		db.prepare(
+			`INSERT INTO email_change_codes (id, user_id, email, code, expires_at)
+		     VALUES (?, ?, ?, ?, ?)`,
+		).run(uuidv4(), userId, email, code, expiresAt);
+
+		const mail = await sendEmail({
+			to: email,
+			...emailTemplates.verification(user.name, code),
+		});
+		const delivered = !(mail && mail.success === false);
+		if (!delivered) {
+			console.error("Email change send failed:", mail.error);
+		}
+
+		// Код не отдаём наружу нигде, кроме логов сервера. Если доставка
+		// сбойнула, пользователь видит это, но шаг ввода кода не блокируем:
+		// письмо иногда приходит позже, а код живёт свои 15 минут.
+		res.json({
+			success: true,
+			delivered,
+			email,
+			message: delivered
+				? `Код отправлен на ${email}`
+				: `Почтовый сервер не принял письмо на ${email}. Проверьте адрес и запросите код ещё раз.`,
+		});
+	} catch (error) {
+		console.error("Email request error:", error);
+		res.status(500).json({ error: "Ошибка при отправке кода" });
+	}
+});
+
+router.post("/email/confirm", authenticateToken, (req, res) => {
+	try {
+		const email = (req.body?.email || "").trim().toLowerCase();
+		const code = String(req.body?.code || "").trim();
+		const userId = req.user.id;
+
+		if (!email || !code) {
+			return res.status(400).json({ error: "Нужны email и код" });
+		}
+
+		const record = db
+			.prepare(
+				`SELECT * FROM email_change_codes
+		         WHERE user_id = ? AND email = ? AND used = 0 AND expires_at > ?
+		         ORDER BY rowid DESC LIMIT 1`,
+			)
+			.get(userId, email, new Date().toISOString());
+
+		if (!record) {
+			return res
+				.status(400)
+				.json({ error: "Код истёк или его не было. Запросите новый." });
+		}
+		if (record.attempts >= EMAIL_CODE_MAX_ATTEMPTS) {
+			db.prepare("UPDATE email_change_codes SET used = 1 WHERE id = ?").run(
+				record.id,
+			);
+			return res
+				.status(400)
+				.json({ error: "Слишком много попыток. Запросите новый код." });
+		}
+		if (record.code !== code) {
+			db.prepare(
+				"UPDATE email_change_codes SET attempts = attempts + 1 WHERE id = ?",
+			).run(record.id);
+			return res.status(400).json({ error: "Неверный код" });
+		}
+
+		// За время ожидания адрес мог занять кто-то другой
+		const taken = db
+			.prepare("SELECT id FROM users WHERE email = ? AND id <> ?")
+			.get(email, userId);
+		if (taken) {
+			return res
+				.status(400)
+				.json({ error: "Такой email уже занят другим аккаунтом" });
+		}
+
+		db.prepare(
+			"UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		).run(email, userId);
+		db.prepare("UPDATE email_change_codes SET used = 1 WHERE id = ?").run(
+			record.id,
+		);
+
+		const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+		res.json({
+			success: true,
+			message: "Почта привязана — теперь доступ можно восстановить",
+			user: {
+				id: user.id,
+				login: user.login,
+				email: user.email,
+				name: user.name,
+				hasPin: !!user.pin_code,
+				hasProfile: !!user.age,
+			},
+		});
+	} catch (error) {
+		console.error("Email confirm error:", error);
+		res.status(500).json({ error: "Ошибка при подтверждении почты" });
 	}
 });
 

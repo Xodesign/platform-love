@@ -32,19 +32,52 @@ export function migrate() {
 		}
 	}
 
-	// --- verification_codes (SMS-вход) ---
-	// Создаём только для новых БД; структура совпадает с базовой схемой.
-	if (!hasTable("verification_codes")) {
-		db.exec(`CREATE TABLE verification_codes (
+	// --- Колонки users, нужные авторизации по PIN и восстановлению по почте ---
+	// Раньше про них знал только init.js (он создаёт новую БД), а migrate.js
+	// применялся к боевой — то есть на свежем восстановлении из старого бэкапа
+	// регистрация падала бы на отсутствующих колонках.
+	if (!hasColumn("users", "email")) {
+		db.exec("ALTER TABLE users ADD COLUMN email TEXT");
+		// UNIQUE в ALTER TABLE нельзя, но автоиндекс от CREATE TABLE здесь тоже
+		// нет — завводим отдельный. NULL в уникальном индексе SQLite не
+		// конфликтует, поэтому старые аккаунты без почты не мешают.
+		db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)");
+	}
+	if (!hasColumn("users", "pin_code")) {
+		db.exec("ALTER TABLE users ADD COLUMN pin_code TEXT");
+	}
+
+	// --- password_reset_codes (восстановление доступа по почте) ---
+	if (!hasTable("password_reset_codes")) {
+		db.exec(`CREATE TABLE password_reset_codes (
       id TEXT PRIMARY KEY,
-      phone TEXT NOT NULL,
+      email TEXT NOT NULL,
       code TEXT NOT NULL,
       attempts INTEGER DEFAULT 0,
       expires_at TEXT NOT NULL,
-      verified INTEGER DEFAULT 0,
+      used INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )`);
 	}
+
+	// --- email_change_codes (привязка/смена почты в кабинете) ---
+	if (!hasTable("email_change_codes")) {
+		db.exec(`CREATE TABLE email_change_codes (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      code TEXT NOT NULL,
+      attempts INTEGER DEFAULT 0,
+      expires_at TEXT NOT NULL,
+      used INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`);
+	}
+
+	// --- verification_codes ---
+	// Таблица SMS-верификации: вход по СМС убран из кода 15.09, поэтому для
+	// новых баз она больше не создаётся. В существующих оставляем как есть —
+	// дропать таблицу на проде нечем крыть, а места она не занимает.
 
 	// --- admins ---
 	if (!hasTable("admins")) {

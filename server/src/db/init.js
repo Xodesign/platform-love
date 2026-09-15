@@ -107,23 +107,28 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_messages_match ON messages(match_id);
 `);
 
-// Коды верификации телефонов
-db.exec(`
-  CREATE TABLE IF NOT EXISTS verification_codes (
-    id TEXT PRIMARY KEY,
-    phone TEXT NOT NULL,
-    code TEXT NOT NULL,
-    attempts INTEGER DEFAULT 0,
-    expires_at TEXT NOT NULL,
-    verified INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+// Коды подтверждения нового email (привязка/смена почты в кабинете).
+// SMS-верификация телефонов из этой схемы убрана 15.09: вход по СМС больше
+// не используется, а verify-code позволял создавать аккаунты без email.
 
 // Коды сброса пароля
 db.exec(`
   CREATE TABLE IF NOT EXISTS password_reset_codes (
     id TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    code TEXT NOT NULL,
+    attempts INTEGER DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    used INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Коды смены email
+db.exec(`
+  CREATE TABLE IF NOT EXISTS email_change_codes (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
     email TEXT NOT NULL,
     code TEXT NOT NULL,
     attempts INTEGER DEFAULT 0,
@@ -168,7 +173,8 @@ console.log("   - swipes");
 console.log("   - matches");
 console.log("   - messages");
 console.log("   - subscriptions");
-console.log("   - verification_codes");
+console.log("   - password_reset_codes");
+console.log("   - email_change_codes");
 console.log("   - user_answers");
 console.log("   - search_settings\n");
 

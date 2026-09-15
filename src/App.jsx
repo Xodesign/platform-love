@@ -2073,6 +2073,311 @@ function SetPinScreen() {
 	);
 }
 
+// Привязка или смена email. Почта — единственный канал возврата доступа,
+// поэтому её можно поставить только подтверждением на новом адресе.
+function EmailScreen() {
+	const navigate = useNavigate();
+	const [step, setStep] = useState("email"); // "email" → "code"
+	const [current, setCurrent] = useState(
+		() => JSON.parse(localStorage.getItem("user") || "{}").email || "",
+	);
+	const [email, setEmail] = useState("");
+	const [target, setTarget] = useState("");
+	const [code, setCode] = useState("");
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState("");
+	const [notice, setNotice] = useState("");
+
+	useEffect(() => {
+		// localStorage мог устареть — сверяемся с сервером (в этом файле
+		// запросы идут через fetch, общей api-обёртки здесь не используют)
+		const token = localStorage.getItem("token");
+		fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } })
+			.then((r) => (r.ok ? r.json() : null))
+			.then((u) => {
+				if (u) setCurrent(u.email || "");
+			})
+			.catch(() => {});
+	}, []);
+
+	const post = async (path, body) => {
+		const token = localStorage.getItem("token");
+		const response = await fetch(`/api/auth/${path}`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify(body),
+		});
+		const data = await response.json();
+		if (!response.ok) throw new Error(data.error || "Не получилось");
+		return data;
+	};
+
+	const sendCode = async () => {
+		setLoading(true);
+		setError("");
+		setNotice("");
+		try {
+			const data = await post("email/request", { email: email.trim() });
+			setTarget(data.email);
+			// Доставка могла отвалиться (неверный адрес, спам-фильтр) — код при
+			// этом живёт свои 15 минут, поэтому шаг ввода не блокируем
+			setNotice(
+				data.delivered === false
+					? `${data.message} Письмо иногда приходит позже.`
+					: "",
+			);
+			setStep("code");
+		} catch (err) {
+			setError(err.message);
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const confirmCode = async (e) => {
+		e.preventDefault();
+		if (!/^\d{6}$/.test(code)) {
+			setError("Введите 6 цифр из письма");
+			return;
+		}
+		setLoading(true);
+		setError("");
+		try {
+			const data = await post("email/confirm", { email: target, code });
+			const me = JSON.parse(localStorage.getItem("user") || "{}");
+			localStorage.setItem("user", JSON.stringify({ ...me, ...data.user }));
+			navigate("/settings", { replace: true });
+		} catch (err) {
+			setError(err.message);
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const inputStyle = {
+		width: "100%",
+		padding: "16px",
+		border: error ? "2px solid #E53935" : "2px solid #E0E0E0",
+		borderRadius: 12,
+		backgroundColor: "white",
+		fontSize: 16,
+		outline: "none",
+	};
+
+	return (
+		<div
+			style={{
+				minHeight: "100vh",
+				backgroundColor: "#F5F5F5",
+				display: "flex",
+				alignItems: "center",
+				justifyContent: "center",
+				padding: "16px",
+				fontFamily: "Inter, system-ui, sans-serif",
+			}}
+		>
+			<div
+				style={{
+					width: "100%",
+					maxWidth: 375,
+					padding: "64px 24px 24px",
+					display: "flex",
+					flexDirection: "column",
+					alignItems: "center",
+				}}
+			>
+				<img
+					src={LOGO_URL}
+					alt="Logo"
+					style={{ width: 200, height: "auto", marginBottom: 8 }}
+				/>
+				<h2 style={{ fontSize: 20, fontWeight: 600, margin: "24px 0 8px" }}>
+					{step === "email" ? "Электронная почта" : "Подтвердите код"}
+				</h2>
+				<p
+					style={{
+						fontSize: 14,
+						color: "#8E8E8E",
+						marginBottom: 24,
+						textAlign: "center",
+					}}
+				>
+					{current
+						? `Сейчас привязана ${current}. Новая почта придёт сюда.`
+						: "Почта не привязана. Без неё не получится восстановить доступ, если вы забудете PIN."}
+				</p>
+
+				{step === "email" ? (
+					<div style={{ width: "100%" }}>
+						<input
+							type="email"
+							placeholder="you@example.com"
+							value={email}
+							onChange={(e) => {
+								setEmail(e.target.value);
+								setError("");
+							}}
+							style={inputStyle}
+						/>
+						{error && (
+							<p
+								style={{
+									color: "#E53935",
+									fontSize: 13,
+									textAlign: "center",
+									margin: "12px 0 0",
+								}}
+							>
+								{error}
+							</p>
+						)}
+						<button
+							onClick={sendCode}
+							disabled={loading || email.trim().length < 5}
+							style={{
+								width: "100%",
+								marginTop: 16,
+								padding: "16px",
+								backgroundColor:
+									loading || email.trim().length < 5
+										? "#A89BC7"
+										: "#7B5EA7",
+								color: "white",
+								borderRadius: 12,
+								fontSize: 16,
+								fontWeight: 600,
+								border: "none",
+								cursor: "pointer",
+								boxShadow: "0 4px 12px rgba(123, 94, 167, 0.3)",
+							}}
+						>
+							{loading ? "Отправка..." : "Отправить код"}
+						</button>
+					</div>
+				) : (
+					<form
+						onSubmit={confirmCode}
+						style={{ width: "100%" }}
+					>
+						<p
+							style={{
+								fontSize: 13,
+								color: "#8E8E8E",
+								textAlign: "center",
+								margin: "0 0 12px",
+							}}
+						>
+							Код отправлен на {target}. Проверьте и папку «Спам».
+						</p>
+						{notice && (
+							<div
+								style={{
+									backgroundColor: "#FFF4E5",
+									borderRadius: 12,
+									padding: "12px 16px",
+									marginBottom: 12,
+								}}
+							>
+								<p style={{ margin: 0, fontSize: 13, color: "#8A5A00" }}>
+									{notice}
+								</p>
+							</div>
+						)}
+						<input
+							type="text"
+							inputMode="numeric"
+							pattern="[0-9]*"
+							maxLength={6}
+							placeholder="______"
+							value={code}
+							onChange={(e) => {
+								setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+								setError("");
+							}}
+							style={{
+								...inputStyle,
+								fontSize: 28,
+								letterSpacing: "16px",
+								textAlign: "center",
+							}}
+						/>
+						{error && (
+							<p
+								style={{
+									color: "#E53935",
+									fontSize: 13,
+									textAlign: "center",
+									margin: "12px 0 0",
+								}}
+							>
+								{error}
+							</p>
+						)}
+						<button
+							type="submit"
+							disabled={loading || code.length !== 6}
+							style={{
+								width: "100%",
+								marginTop: 16,
+								padding: "16px",
+								backgroundColor:
+									loading || code.length !== 6 ? "#A89BC7" : "#7B5EA7",
+								color: "white",
+								borderRadius: 12,
+								fontSize: 16,
+								fontWeight: 600,
+								border: "none",
+								cursor: "pointer",
+								boxShadow: "0 4px 12px rgba(123, 94, 167, 0.3)",
+							}}
+						>
+							{loading ? "Проверка..." : "Подтвердить"}
+						</button>
+						<button
+							type="button"
+							onClick={() => {
+								setStep("email");
+								setCode("");
+								setError("");
+								setNotice("");
+							}}
+							style={{
+								width: "100%",
+								marginTop: 16,
+								background: "none",
+								border: "none",
+								color: "#7B5EA7",
+								fontSize: 14,
+								textDecoration: "underline",
+								cursor: "pointer",
+							}}
+						>
+							Изменить адрес / отправить ещё раз
+						</button>
+					</form>
+				)}
+
+				<button
+					onClick={() => navigate(-1)}
+					style={{
+						marginTop: 24,
+						background: "none",
+						border: "none",
+						color: "#8E8E8E",
+						fontSize: 14,
+						cursor: "pointer",
+					}}
+					>
+					← Назад
+				</button>
+			</div>
+		</div>
+	);
+}
+
 // Yandex OAuth Callback
 function YandexCallback() {
 	const navigate = useNavigate();
@@ -2468,7 +2773,23 @@ function ProfileScreen() {
 	const [city, setCity] = useState("Москва");
 	const [metro, setMetro] = useState("Красные Ворота");
 	const [birthdate, setBirthdate] = useState("15.03.1995");
-	const [email, setEmail] = useState("alex@mail.ru");
+	// Почта приходит с сервера. Раньше здесь лежало демо-значение
+	// alex@mail.ru: любой пользователь видел чужой адрес и думал, что почта
+	// привязана, хотя никуда она не сохранялась и восстановить доступ было
+	// нельзя. Теперь поле только показывает реальный привязанный email.
+	const [email, setEmail] = useState(null);
+
+	useEffect(() => {
+		const cached = JSON.parse(localStorage.getItem("user") || "{}");
+		setEmail(cached.email || "");
+		const token = localStorage.getItem("token");
+		fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } })
+			.then((r) => (r.ok ? r.json() : null))
+			.then((u) => {
+				if (u) setEmail(u.email || "");
+			})
+			.catch(() => {});
+	}, []);
 
 	const handleContinue = () => {
 		// Сохраняем базовые данные профиля отдельно
@@ -2477,7 +2798,7 @@ function ProfileScreen() {
 			city,
 			metro,
 			birthdate,
-			email,
+			email: email || "",
 		};
 		localStorage.setItem("basicProfile", JSON.stringify(basicProfile));
 		navigate("/questions");
@@ -2847,20 +3168,34 @@ function ProfileScreen() {
 						>
 							<path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
 						</svg>
-						<input
-							type="email"
-							placeholder="E-mail"
-							value={email}
-							onChange={(e) => setEmail(e.target.value)}
+						<span
 							style={{
 								flex: 1,
-								border: "none",
-								backgroundColor: "transparent",
 								fontSize: 16,
-								color: "#1A1A1A",
-								outline: "none",
+								color: email ? "#1A1A1A" : "#E53935",
+								wordBreak: "break-all",
 							}}
-						/>
+						>
+							{email === null ? "…" : email || "почта не привязана"}
+						</span>
+						{/* Менять почту можно только с подтверждением — экран /email */}
+						<button
+							type="button"
+							onClick={() => navigate("/email")}
+							style={{
+								border: "none",
+								background: "none",
+								color: "#7B5EA7",
+								fontSize: 13,
+								fontWeight: 600,
+								cursor: "pointer",
+								textDecoration: "underline",
+								whiteSpace: "nowrap",
+								padding: 0,
+							}}
+						>
+							{email ? "сменить" : "привязать"}
+						</button>
 					</div>
 				</div>
 
@@ -2965,6 +3300,7 @@ function App() {
 						{/* Экраны, требующие входа */}
 						<Route element={<RequireAuth />}>
 							<Route path="/set-pin" element={<SetPinScreen />} />
+							<Route path="/email" element={<EmailScreen />} />
 							<Route path="/profile" element={<ProfileScreen />} />
 							<Route path="/questions" element={<QuestionScreen />} />
 							<Route path="/menu" element={<MainMenuScreen />} />

@@ -14,6 +14,8 @@ export default function SettingsScreen() {
 		deleteProfile: false,
 	});
 	const [userId, setUserId] = useState(null);
+	// null = ещё не спросили, "" = почта не привязана
+	const [email, setEmail] = useState(null);
 
 	// Загружаем текущее состояние is_frozen с сервера при mount
 	useEffect(() => {
@@ -22,11 +24,18 @@ export default function SettingsScreen() {
 		try {
 			const user = JSON.parse(stored);
 			setUserId(user.id);
+			setEmail(user.email || "");
 			api
 				.getUser(user.id)
 				.then((u) => {
 					setToggles((prev) => ({ ...prev, freeze: !!u.is_frozen }));
 				})
+				.catch(() => {});
+			// Почту берём из auth/me: GET /users/:id отдаёт анкету, а не учётные
+			// данные, и email там можно подделать в чужой карточке
+			api
+				.getMe()
+				.then((u) => setEmail(u.email || ""))
 				.catch(() => {});
 		} catch {}
 	}, []);
@@ -99,6 +108,25 @@ export default function SettingsScreen() {
 
 			{/* Settings Content */}
 			<div style={{ padding: 20 }}>
+				{/* Без почты доступ не восстановить — напоминаем только если её нет */}
+				{email === "" && (
+					<div
+						onClick={() => navigate("/email")}
+						style={{
+							backgroundColor: "#FFF4E5",
+							borderRadius: 16,
+							padding: "14px 16px",
+							marginBottom: 16,
+							cursor: "pointer",
+						}}
+					>
+						<p style={{ margin: 0, fontSize: 13, color: "#8A5A00" }}>
+							К аккаунту не привязана почта. Добавьте её — иначе при забытом
+							PIN мы не сможем вернуть доступ.
+						</p>
+					</div>
+				)}
+
 				{/* Toggle Label */}
 				<p
 					style={{
@@ -243,6 +271,40 @@ export default function SettingsScreen() {
 								}}
 							/>
 						</button>
+					</div>
+
+					{/* Почта: посмотреть, добавить или сменить */}
+					<div
+						onClick={() => navigate("/email")}
+						style={{
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "space-between",
+							padding: "16px 20px",
+							borderBottom: "1px solid #F0F0F0",
+							cursor: "pointer",
+						}}
+					>
+						<div>
+							<span style={{ fontSize: 15, color: "#1A1A1A" }}>
+								Электронная почта
+							</span>
+							<p
+								style={{
+									fontSize: 12,
+									color: email === null || email ? "#8E8E8E" : "#E53935",
+									margin: "2px 0 0",
+									wordBreak: "break-all",
+								}}
+							>
+								{email === null
+									? "…"
+									: email
+										? email
+										: "не привязана"}
+							</p>
+						</div>
+						<span style={{ fontSize: 18, color: "#8E8E8E" }}>›</span>
 					</div>
 
 					{/* Смена PIN — тот же экран, что и при первом входе */}

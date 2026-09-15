@@ -44,8 +44,13 @@ const post = async (path, body, token) => {
 
 const cleanup = () => {
 	try {
-		db.prepare("DELETE FROM password_reset_codes WHERE email = ?").run(email);
-		db.prepare("DELETE FROM users WHERE login = ?").run(login);
+		db.prepare(
+			"DELETE FROM email_change_codes WHERE user_id IN (SELECT id FROM users WHERE login LIKE 'smoke%')",
+		).run();
+		db.prepare(
+			"DELETE FROM password_reset_codes WHERE email LIKE 'smoke%@example.invalid' OR email LIKE 'smoke%-new@example.invalid' OR email LIKE 'smokeb%@example.invalid'",
+		).run();
+		db.prepare("DELETE FROM users WHERE login LIKE 'smoke%'").run();
 	} catch (e) {
 		console.error("cleanup:", e.message);
 	}
@@ -202,12 +207,171 @@ try {
 		`${me.status}`,
 	);
 
-	// 16. SMS-эндпоинты всё ещё доступны (наследие)
-	const sms = await post("/api/auth/send-code", { phone: "+79000000000" });
+	// Токен после входа по PIN и id тестового аккаунта — нужны для проверок почты
+	const token2 = newOk.data?.token;
+	const userId = db.prepare("SELECT id FROM users WHERE login = ?").get(login)
+		.id;
+
+	// 16. SMS-эндпоинты удалены: они позволяли заходить в обход обязательной почты
+	const sms1 = await post("/api/auth/send-code", { phone: "+79000000000" });
+	const sms2 = await post("/api/auth/verify-code", {
+		phone: "+79000000000",
+		code: "1234",
+	});
 	check(
-		"SMS-эндпоинты живы (наследие)",
-		sms.status === 200,
-		`${sms.status} debug_code=${sms.data?.debug_code ? "есть" : "нет"}`,
+		"SMS-эндпоинты больше не существуют → 404",
+		sms1.status === 404 && sms2.status === 404,
+		`send-code=${sms1.status} verify-code=${sms2.status}`,
+	);
+
+	// 17. Привязка почты: кривой формат и «уже привязана»
+	let e1 = await post("/api/auth/email/request", { email: "не-почта" }, token2);
+	check(
+		"email/request: кривой формат → 400",
+		e1.status === 400,
+		`${e1.status} ${e1.data?.error || ""}`,
+	);
+	e1 = await post(
+		"/api/auth/email/request",
+		{ email },
+		token2,
+	);
+	check(
+		"email/request: уже привязана → 400",
+		e1.status === 400 && /уже привязана/i.test(e1.data?.error || ""),
+		`${e1.status} ${e1.data?.error || ""}`,
+	);
+
+	// 18. Чужую почту занять нельзя
+	const other = `smokeb${Date.now().toString().slice(-6)}`;
+	const otherEmail = `${other}@example.invalid`;
+	const otherPassword = crypto.randomBytes(8).toString("hex");
+	const reg2 = await post("/api/auth/register", {
+		login: other,
+		email: otherEmail,
+		password: otherPassword,
+		name: "Второй",
+	});
+	check(
+		"второй тестовый аккаунт создан",
+		reg2.status === 201,
+		`${reg2.status}`,
+	);
+	e1 = await post(
+		"/api/auth/email/request",
+		{ email: otherEmail },
+		token2,
+	);
+	check(
+		"email/request: чужая почта → 400",
+		e1.status === 400 && /занят/i.test(e1.data?.error || ""),
+		`${e1.status} ${e1.data?.error || ""}`,
+	);
+
+	// 19. Нормальный запрос кода: письмо реально не ждём, код берём из БД
+	const newEmail = `${login}-new@example.invalid`;
+	e1 = await post("/api/auth/email/request", { email: newEmail }, token2);
+	const mailCode = db
+		.prepare(
+			"SELECT code FROM email_change_codes WHERE user_id = ? ORDER BY rowid DESC LIMIT 1",
+		)
+		.get(userId);
+	check(
+		"email/request → 200 + код в БД",
+		e1.status === 200 && /^[0-9]{6}$/.test(String(mailCode?.code || "")),
+		`${e1.status} delivered=${e1.data?.delivered}`,
+	);
+
+	// 20. Неверный код не привязывает почту
+	let c1 = await post(
+		"/api/auth/email/confirm",
+		{ email: newEmail, code: "000000" },
+		token2,
+	);
+	const stillOld = db
+		.prepare("SELECT email FROM users WHERE id = ?")
+		.get(userId).email;
+	check(
+		"email/confirm: неверный код → 400 и почта не изменилась",
+		c1.status === 400 && stillOld === email,
+		`${c1.status} email=${stillOld}`,
+	);
+
+	// 21. Просроченный код не принимается (проверка срока сравнивает ISO-строки)
+	db.prepare(
+		"UPDATE email_change_codes SET expires_at = ? WHERE user_id = ?",
+	).run(new Date(Date.now() - 60000).toISOString(), userId);
+	c1 = await post(
+		"/api/auth/email/confirm",
+		{ email: newEmail, code: mailCode?.code },
+		token2,
+	);
+	check(
+		"email/confirm: просроченный код → 400",
+		c1.status === 400,
+		`${c1.status} ${c1.data?.error || ""}`,
+	);
+
+	// 22. Свежий код привязывает почту, и /me показывает новую
+	await post("/api/auth/email/request", { email: newEmail }, token2);
+	const fresh = db
+		.prepare(
+			"SELECT code FROM email_change_codes WHERE user_id = ? ORDER BY rowid DESC LIMIT 1",
+		)
+		.get(userId);
+	c1 = await post(
+		"/api/auth/email/confirm",
+		{ email: newEmail, code: fresh?.code },
+		token2,
+	);
+	const meAfter = await fetch(`${BASE}/api/auth/me`, {
+		headers: { Authorization: `Bearer ${token2}` },
+	});
+	const meAfterData = await meAfter.json().catch(() => null);
+	check(
+		"email/confirm → почта привязана и видна в /me",
+		c1.status === 200 && meAfterData?.email === newEmail,
+		`${c1.status} me=${meAfterData?.email}`,
+	);
+
+	// 23. Повторно использовать тот же код нельзя
+	c1 = await post(
+		"/api/auth/email/confirm",
+		{ email: `${login}-again@example.invalid`, code: fresh?.code },
+		token2,
+	);
+	check(
+		"email/confirm: одноразовость кода",
+		c1.status === 400,
+		`${c1.status} ${c1.data?.error || ""}`,
+	);
+
+	// 24. Восстановление теперь уходит на НОВУЮ почту (главная цель привязки)
+	await post("/api/auth/forgot-password", { login });
+	const reset2 = db
+		.prepare(
+			"SELECT code FROM password_reset_codes WHERE email = ? ORDER BY rowid DESC LIMIT 1",
+		)
+		.get(newEmail);
+	check(
+		"forgot-password после смены почты → код на новый адрес",
+		!!reset2?.code,
+		`код ${reset2 ? "найден" : "не найден"}`,
+	);
+
+	// 25. И просроченный код восстановления тоже отклоняется
+	db.prepare(
+		"UPDATE password_reset_codes SET expires_at = ? WHERE email = ?",
+	).run(new Date(Date.now() - 60000).toISOString(), newEmail);
+	const expiredReset = await post("/api/auth/reset-password", {
+		login,
+		code: reset2?.code,
+		pin: "0000",
+	});
+	check(
+		"reset-password: просроченный код → 400",
+		expiredReset.status === 400,
+		`${expiredReset.status} ${expiredReset.data?.error || ""}`,
 	);
 } catch (e) {
 	check("исключение в тесте", false, e.message);
