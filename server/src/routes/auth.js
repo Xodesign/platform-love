@@ -29,11 +29,9 @@ router.post("/register", async (req, res) => {
 		// Почта обязательна: через неё восстанавливают доступ, когда забыли PIN
 		const normalizedEmail = (email || "").trim().toLowerCase();
 		if (!normalizedEmail) {
-			return res
-				.status(400)
-				.json({
-					error: "Укажите email — на него придёт код восстановления доступа",
-				});
+			return res.status(400).json({
+				error: "Укажите email — на него придёт код восстановления доступа",
+			});
 		}
 		if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(normalizedEmail)) {
 			return res.status(400).json({ error: "Похоже, в email опечатка" });

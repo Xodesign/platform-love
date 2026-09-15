@@ -41,7 +41,9 @@ export function migrate() {
 		// UNIQUE в ALTER TABLE нельзя, но автоиндекс от CREATE TABLE здесь тоже
 		// нет — завводим отдельный. NULL в уникальном индексе SQLite не
 		// конфликтует, поэтому старые аккаунты без почты не мешают.
-		db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)");
+		db.exec(
+			"CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)",
+		);
 	}
 	if (!hasColumn("users", "pin_code")) {
 		db.exec("ALTER TABLE users ADD COLUMN pin_code TEXT");

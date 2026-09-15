@@ -2242,9 +2242,7 @@ function EmailScreen() {
 								marginTop: 16,
 								padding: "16px",
 								backgroundColor:
-									loading || email.trim().length < 5
-										? "#A89BC7"
-										: "#7B5EA7",
+									loading || email.trim().length < 5 ? "#A89BC7" : "#7B5EA7",
 								color: "white",
 								borderRadius: 12,
 								fontSize: 16,
@@ -2258,10 +2256,7 @@ function EmailScreen() {
 						</button>
 					</div>
 				) : (
-					<form
-						onSubmit={confirmCode}
-						style={{ width: "100%" }}
-					>
+					<form onSubmit={confirmCode} style={{ width: "100%" }}>
 						<p
 							style={{
 								fontSize: 13,
@@ -2370,7 +2365,7 @@ function EmailScreen() {
 						fontSize: 14,
 						cursor: "pointer",
 					}}
-					>
+				>
 					← Назад
 				</button>
 			</div>

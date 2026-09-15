@@ -121,8 +121,8 @@ export default function SettingsScreen() {
 						}}
 					>
 						<p style={{ margin: 0, fontSize: 13, color: "#8A5A00" }}>
-							К аккаунту не привязана почта. Добавьте её — иначе при забытом
-							PIN мы не сможем вернуть доступ.
+							К аккаунту не привязана почта. Добавьте её — иначе при забытом PIN
+							мы не сможем вернуть доступ.
 						</p>
 					</div>
 				)}
@@ -297,11 +297,7 @@ export default function SettingsScreen() {
 									wordBreak: "break-all",
 								}}
 							>
-								{email === null
-									? "…"
-									: email
-										? email
-										: "не привязана"}
+								{email === null ? "…" : email ? email : "не привязана"}
 							</p>
 						</div>
 						<span style={{ fontSize: 18, color: "#8E8E8E" }}>›</span>

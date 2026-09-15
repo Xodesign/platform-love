@@ -209,8 +209,9 @@ try {
 
 	// Токен после входа по PIN и id тестового аккаунта — нужны для проверок почты
 	const token2 = newOk.data?.token;
-	const userId = db.prepare("SELECT id FROM users WHERE login = ?").get(login)
-		.id;
+	const userId = db
+		.prepare("SELECT id FROM users WHERE login = ?")
+		.get(login).id;
 
 	// 16. SMS-эндпоинты удалены: они позволяли заходить в обход обязательной почты
 	const sms1 = await post("/api/auth/send-code", { phone: "+79000000000" });
@@ -231,11 +232,7 @@ try {
 		e1.status === 400,
 		`${e1.status} ${e1.data?.error || ""}`,
 	);
-	e1 = await post(
-		"/api/auth/email/request",
-		{ email },
-		token2,
-	);
+	e1 = await post("/api/auth/email/request", { email }, token2);
 	check(
 		"email/request: уже привязана → 400",
 		e1.status === 400 && /уже привязана/i.test(e1.data?.error || ""),
@@ -257,11 +254,7 @@ try {
 		reg2.status === 201,
 		`${reg2.status}`,
 	);
-	e1 = await post(
-		"/api/auth/email/request",
-		{ email: otherEmail },
-		token2,
-	);
+	e1 = await post("/api/auth/email/request", { email: otherEmail }, token2);
 	check(
 		"email/request: чужая почта → 400",
 		e1.status === 400 && /занят/i.test(e1.data?.error || ""),
