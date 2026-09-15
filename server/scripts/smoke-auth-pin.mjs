@@ -366,6 +366,168 @@ try {
 		expiredReset.status === 400,
 		`${expiredReset.status} ${expiredReset.data?.error || ""}`,
 	);
+
+	// ============ PIN-гейт на сервере ============
+	// Раньше барьер жил только на клиенте: токен из /login (один пароль) открывал
+	// весь API, и экран PIN обходился запросом. Проверяем, что сервер отвечает
+	// 428 и принимает второй фактор.
+
+	const get = async (path, token) => {
+		const res = await fetch(`${BASE}${path}`, {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+		return { status: res.status, data: await res.json().catch(() => null) };
+	};
+
+	// 28. Вход по одному паролю выдаёт токен, но не доступ к данным
+	const pw = await post("/api/auth/login", { login, password });
+	const tokenPw = pw.data?.token;
+	check(
+		"login по паролю → токен выдан",
+		pw.status === 200 && !!tokenPw,
+		`${pw.status}`,
+	);
+
+	const protGet = await get(`/api/users/${userId}`, tokenPw);
+	check(
+		"защищённый GET по парольному токену → 428 pin_required",
+		protGet.status === 428 && protGet.data?.code === "pin_required",
+		`${protGet.status} ${protGet.data?.code || ""}`,
+	);
+
+	// 29. /me обязан оставаться доступным — по нему клиент решает, куда вести
+	const mePw = await get("/api/auth/me", tokenPw);
+	check(
+		"/me по парольному токену → 200",
+		mePw.status === 200,
+		`${mePw.status}`,
+	);
+
+	// 30. Привязка почты — тоже под PIN (иначе угнанный пароль = смена почты)
+	const emailNoPin = await post(
+		"/api/auth/email/request",
+		{ email: `gate${Date.now().toString().slice(-6)}@example.invalid` },
+		tokenPw,
+	);
+	check(
+		"email/request по парольному токену → 428",
+		emailNoPin.status === 428,
+		`${emailNoPin.status}`,
+	);
+
+	// 31-32. Подтверждение доступа: неверный PIN отклоняется, верный выдаёт токен
+	const badVerify = await post(
+		"/api/auth/verify-pin",
+		{ pin: "9999" },
+		tokenPw,
+	);
+	check(
+		"verify-pin: неверный PIN → 401",
+		badVerify.status === 401,
+		`${badVerify.status}`,
+	);
+	const goodVerify = await post("/api/auth/verify-pin", { pin: PIN2 }, tokenPw);
+	const tokenVerified = goodVerify.data?.token;
+	const protAfter = await get(`/api/users/${userId}`, tokenVerified);
+	check(
+		"verify-pin → токен открывает защищённые данные",
+		goodVerify.status === 200 && !!tokenVerified && protAfter.status === 200,
+		`verify=${goodVerify.status} data=${protAfter.status}`,
+	);
+
+	// 33. Смена пароля: нужен и подтверждённый PIN, и текущий пароль
+	const cpNoPin = await post(
+		"/api/auth/change-password",
+		{ currentPassword: password, newPassword: "newpass123" },
+		tokenPw,
+	);
+	check(
+		"change-password по парольному токену → 428",
+		cpNoPin.status === 428,
+		`${cpNoPin.status}`,
+	);
+	const cpBad = await post(
+		"/api/auth/change-password",
+		{ currentPassword: "не-тот-пароль", newPassword: "newpass123" },
+		tokenVerified,
+	);
+	check(
+		"change-password: неверный текущий → 401",
+		cpBad.status === 401,
+		`${cpBad.status}`,
+	);
+	const cpShort = await post(
+		"/api/auth/change-password",
+		{ currentPassword: password, newPassword: "123" },
+		tokenVerified,
+	);
+	check(
+		"change-password: новый короче 6 → 400",
+		cpShort.status === 400,
+		`${cpShort.status}`,
+	);
+	const cpOk = await post(
+		"/api/auth/change-password",
+		{ currentPassword: password, newPassword: "newpass123" },
+		tokenVerified,
+	);
+	const loginNew = await post("/api/auth/login", {
+		login,
+		password: "newpass123",
+	});
+	check(
+		"change-password → работает новый пароль",
+		cpOk.status === 200 && loginNew.status === 200,
+		`cp=${cpOk.status} login=${loginNew.status}`,
+	);
+
+	// 34. Смена PIN невозможна без текущего
+	const setNoOld = await post(
+		"/api/auth/set-pin",
+		{ pin: "7777" },
+		tokenVerified,
+	);
+	check(
+		"set-pin без текущего PIN → 400",
+		setNoOld.status === 400,
+		`${setNoOld.status}`,
+	);
+	const setBadOld = await post(
+		"/api/auth/set-pin",
+		{ pin: "7777", oldPin: "0000" },
+		tokenVerified,
+	);
+	check(
+		"set-pin с неверным текущим → 401",
+		setBadOld.status === 401,
+		`${setBadOld.status}`,
+	);
+	const setOk = await post(
+		"/api/auth/set-pin",
+		{ pin: "7777", oldPin: PIN2 },
+		tokenVerified,
+	);
+	const verifyNew = await post(
+		"/api/auth/verify-pin",
+		{ pin: "7777" },
+		tokenPw,
+	);
+	check(
+		"set-pin с текущим PIN → новый работает",
+		setOk.status === 200 && !!setOk.data?.token && verifyNew.status === 200,
+		`set=${setOk.status} verify=${verifyNew.status}`,
+	);
+
+	// 41. /me отдаёт pinVerified — по нему клиент различает «придумать PIN»
+	// и «подтвердить доступ», не полагаясь на localStorage
+	const meUnverified = await get("/api/auth/me", tokenPw);
+	const meVerified = await get("/api/auth/me", tokenVerified);
+	check(
+		"/me: pinVerified=false у парольного токена и true у подтверждённого",
+		meUnverified.data?.pinVerified === false &&
+			meVerified.data?.pinVerified === true,
+		`pw=${meUnverified.data?.pinVerified} verified=${meVerified.data?.pinVerified}`,
+	);
 } catch (e) {
 	check("исключение в тесте", false, e.message);
 } finally {

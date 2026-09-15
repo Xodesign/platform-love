@@ -2,7 +2,11 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import db from "../db/database.js";
-import { authenticateToken, generateToken } from "../middleware/auth.js";
+import {
+	authenticateToken,
+	generateToken,
+	requirePin,
+} from "../middleware/auth.js";
 import { sendEmail, emailTemplates } from "../utils/email.js";
 
 const router = Router();
@@ -122,11 +126,26 @@ router.post("/check-login", (req, res) => {
 
 router.post("/set-pin", authenticateToken, async (req, res) => {
 	try {
-		const { pin } = req.body;
+		const { pin, oldPin } = req.body;
 		const userId = req.user.id;
 
 		if (!pin || !/^\d{4}$/.test(pin)) {
 			return res.status(400).json({ error: "PIN должен быть 4 цифры" });
+		}
+
+		// Смена PIN только со знанием текущего: иначе токен без второго фактора
+		// позволял бы подменить PIN и закрепиться в чужом аккаунте
+		const current = db
+			.prepare("SELECT pin_code FROM users WHERE id = ?")
+			.get(userId);
+		if (current?.pin_code) {
+			if (!oldPin || !/^\d{4}$/.test(oldPin)) {
+				return res.status(400).json({ error: "Введите текущий PIN-код" });
+			}
+			const okOld = await bcrypt.compare(oldPin, current.pin_code);
+			if (!okOld) {
+				return res.status(401).json({ error: "Текущий PIN неверный" });
+			}
 		}
 
 		// Хешируем PIN так же, как пароль (bcrypt) — иначе он лежит в БД в открытом виде
@@ -144,12 +163,100 @@ router.post("/set-pin", authenticateToken, async (req, res) => {
 			message: "PIN установлен",
 			hasPin: true,
 			hasProfile: !!me?.age,
+			// PIN только что введён — токен имеет право на защищённые эндпоинты,
+			// иначе пришлось бы перелогиниваться сразу после настройки
+			token: generateToken(userId, { pinVerified: true }),
 		});
 	} catch (error) {
 		console.error("Set PIN error:", error);
 		res.status(500).json({ error: "Ошибка при установке PIN" });
 	}
 });
+
+// ============================================
+// ПОДТВЕРЖДЕНИЕ ДОСТУПА ПО PIN (без смены PIN)
+// ============================================
+
+// Токен из /login выдан по одному паролю и не допущен к защищённым эндпоинтам
+// (428). Здесь пользователь доказывает второй фактор и получает тот же токен с
+// pinVerified: true — без перелогина и без потери сессии.
+router.post("/verify-pin", authenticateToken, async (req, res) => {
+	try {
+		const { pin } = req.body;
+		const userId = req.user.id;
+
+		if (!pin || !/^\d{4}$/.test(pin)) {
+			return res.status(400).json({ error: "PIN должен быть 4 цифры" });
+		}
+
+		const user = db
+			.prepare("SELECT pin_code FROM users WHERE id = ?")
+			.get(userId);
+		if (!user?.pin_code) {
+			return res.status(400).json({ error: "PIN не установлен" });
+		}
+
+		const valid = await bcrypt.compare(pin, user.pin_code);
+		if (!valid) {
+			return res.status(401).json({ error: "Неверный PIN" });
+		}
+
+		res.json({
+			success: true,
+			token: generateToken(userId, { pinVerified: true }),
+		});
+	} catch (error) {
+		console.error("Verify PIN error:", error);
+		res.status(500).json({ error: "Ошибка при подтверждении" });
+	}
+});
+
+// ============================================
+// СМЕНА ПАРОЛЯ («кодовое слово» в Настройках)
+// ============================================
+
+// Требует подтверждённый PIN: менять пароль по одному только парольному токену
+// было бы способом закрепиться в чужом аккаунте
+router.post(
+	"/change-password",
+	authenticateToken,
+	requirePin,
+	async (req, res) => {
+		try {
+			const { currentPassword, newPassword } = req.body;
+			const userId = req.user.id;
+
+			if (!currentPassword || !newPassword) {
+				return res
+					.status(400)
+					.json({ error: "Укажите текущий и новый пароль" });
+			}
+			if (newPassword.length < 6) {
+				return res
+					.status(400)
+					.json({ error: "Новый пароль минимум 6 символов" });
+			}
+
+			const user = db
+				.prepare("SELECT password FROM users WHERE id = ?")
+				.get(userId);
+			const ok = await bcrypt.compare(currentPassword, user.password);
+			if (!ok) {
+				return res.status(401).json({ error: "Текущий пароль неверный" });
+			}
+
+			db.prepare("UPDATE users SET password = ? WHERE id = ?").run(
+				await bcrypt.hash(newPassword, 10),
+				userId,
+			);
+
+			res.json({ success: true, message: "Пароль изменён" });
+		} catch (error) {
+			console.error("Change password error:", error);
+			res.status(500).json({ error: "Ошибка при смене пароля" });
+		}
+	},
+);
 
 // ============================================
 // ВХОД ПО LOGIN + ПАРОЛЬ
@@ -179,7 +286,8 @@ router.post("/login", async (req, res) => {
 			return res.status(401).json({ error: "Неверный логин или пароль" });
 		}
 
-		const token = generateToken(user.id);
+		// Пароль сам по себе доступ к данным не даёт: нужен ещё PIN
+		const token = generateToken(user.id, { pinVerified: false });
 
 		res.json({
 			token,
@@ -233,7 +341,7 @@ router.post("/login-pin", async (req, res) => {
 			return res.status(401).json({ error: "Неверный PIN" });
 		}
 
-		const token = generateToken(user.id);
+		const token = generateToken(user.id, { pinVerified: true });
 
 		res.json({
 			success: true,
@@ -421,7 +529,11 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
 const EMAIL_CODE_TTL_MIN = 15;
 const EMAIL_CODE_MAX_ATTEMPTS = 5;
 
-router.post("/email/request", authenticateToken, async (req, res) => {
+router.post(
+	"/email/request",
+	authenticateToken,
+	requirePin,
+	async (req, res) => {
 	try {
 		const email = (req.body?.email || "").trim().toLowerCase();
 		const userId = req.user.id;
@@ -491,7 +603,11 @@ router.post("/email/request", authenticateToken, async (req, res) => {
 	}
 });
 
-router.post("/email/confirm", authenticateToken, (req, res) => {
+router.post(
+	"/email/confirm",
+	authenticateToken,
+	requirePin,
+	(req, res) => {
 	try {
 		const email = (req.body?.email || "").trim().toLowerCase();
 		const code = String(req.body?.code || "").trim();
@@ -586,6 +702,9 @@ router.get("/me", authenticateToken, (req, res) => {
 			name: user.name,
 			hasPin: !!user.pin_code,
 			hasProfile: !!user.age,
+			// Клиент по этому полю различает «придумать PIN» и «подтвердить
+			// доступ»: токен мог быть выдан до включения PIN-гейта
+			pinVerified: !!req.user.pinVerified,
 		});
 	} catch (error) {
 		console.error("Me error:", error);

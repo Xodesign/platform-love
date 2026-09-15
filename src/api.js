@@ -39,10 +39,51 @@ class ApiService {
 		const data = await response.json();
 
 		if (!response.ok) {
-			throw new Error(data.error || "Произошла ошибка");
+			const error = new Error(data.error || "Произошла ошибка");
+			error.status = response.status;
+			error.code = data.code || null;
+			// 428 — не сломанная сессия, а «нужен второй фактор». Сообщаем приложению:
+			// оно уводит пользователя на экран PIN и после подтверждения повторяет
+			// запрос уже с новым токеном. Без этого любой ответ сервера выглядел бы
+			// как «что-то пошло не так».
+			if (response.status === 428) {
+				window.dispatchEvent(new CustomEvent("pin-required"));
+			}
+			throw error;
 		}
 
 		return data;
+	}
+
+	// ---- PIN как второй фактор ----
+
+	// Подтвердить доступ существующим PIN (после 428), ничего не меняя
+	async verifyPin(pin) {
+		const data = await this.request("/auth/verify-pin", {
+			method: "POST",
+			body: JSON.stringify({ pin }),
+		});
+		if (data.token) this.setToken(data.token);
+		return data;
+	}
+
+	// Установить новый PIN или сменить существующий (тогда нужен oldPin)
+	async setPin(pin, oldPin) {
+		const data = await this.request("/auth/set-pin", {
+			method: "POST",
+			body: JSON.stringify({ pin, oldPin }),
+		});
+		// Сервер отдаёт токен с подтверждённым PIN: с ним защищённые эндпоинты
+		// открываются сразу, без перелогина
+		if (data.token) this.setToken(data.token);
+		return data;
+	}
+
+	async changePassword(currentPassword, newPassword) {
+		return this.request("/auth/change-password", {
+			method: "POST",
+			body: JSON.stringify({ currentPassword, newPassword }),
+		});
 	}
 
 	// Auth

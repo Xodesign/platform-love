@@ -10,7 +10,6 @@ export default function SettingsScreen() {
 	const [toggles, setToggles] = useState({
 		freeze: false,
 		messages: false,
-		codeWord: true,
 		deleteProfile: false,
 	});
 	const [userId, setUserId] = useState(null);
@@ -231,46 +230,23 @@ export default function SettingsScreen() {
 						</button>
 					</div>
 
-					{/* Сменить кодовое слово */}
+					{/* Раньше здесь был декоративный переключатель: пароль нельзя было
+					сменить изнутри сессии, только через «Забыли PIN или пароль» */}
 					<div
+						onClick={() => navigate("/password")}
 						style={{
 							display: "flex",
 							alignItems: "center",
 							justifyContent: "space-between",
 							padding: "16px 20px",
 							borderBottom: "1px solid #F0F0F0",
+							cursor: "pointer",
 						}}
 					>
 						<span style={{ fontSize: 15, color: "#1A1A1A" }}>
 							Сменить кодовое слово
 						</span>
-						<button
-							onClick={() => toggleSetting("codeWord")}
-							style={{
-								width: 50,
-								height: 28,
-								borderRadius: 14,
-								backgroundColor: toggles.codeWord ? "#7B5EA7" : "#E0E0E0",
-								border: "none",
-								cursor: "pointer",
-								position: "relative",
-								transition: "background-color 0.2s",
-							}}
-						>
-							<div
-								style={{
-									width: 22,
-									height: 22,
-									borderRadius: "50%",
-									backgroundColor: "white",
-									position: "absolute",
-									top: 3,
-									left: toggles.codeWord ? 25 : 3,
-									transition: "left 0.2s",
-									boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-								}}
-							/>
-						</button>
+						<span style={{ fontSize: 18, color: "#8E8E8E" }}>›</span>
 					</div>
 
 					{/* Почта: посмотреть, добавить или сменить */}
@@ -305,7 +281,7 @@ export default function SettingsScreen() {
 
 					{/* Смена PIN — тот же экран, что и при первом входе */}
 					<div
-						onClick={() => navigate("/set-pin")}
+						onClick={() => navigate("/set-pin?change=1")}
 						style={{
 							display: "flex",
 							alignItems: "center",

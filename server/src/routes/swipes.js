@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import db from '../db/database.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requirePin } from '../middleware/auth.js';
 
 const router = Router();
 
 // Получить кандидатов для свайпов
-router.get('/candidates', authenticateToken, (req, res) => {
+router.get('/candidates', authenticateToken, requirePin, (req, res) => {
   try {
     const userId = req.user.id;
     const { limit = 20 } = req.query;
@@ -43,7 +43,7 @@ router.get('/candidates', authenticateToken, (req, res) => {
 });
 
 // Сделать свайп
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, requirePin, (req, res) => {
   try {
     const { target_user_id, direction } = req.body;
     const userId = req.user.id;
@@ -111,7 +111,7 @@ router.post('/', authenticateToken, (req, res) => {
 });
 
 // Получить историю свайпов текущего пользователя
-router.get('/history', authenticateToken, (req, res) => {
+router.get('/history', authenticateToken, requirePin, (req, res) => {
   try {
     const userId = req.user.id;
 

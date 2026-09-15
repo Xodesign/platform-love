@@ -1,11 +1,11 @@
 import { Router } from "express";
 import db from "../db/database.js";
-import { authenticateToken } from "../middleware/auth.js";
+import { authenticateToken, requirePin } from "../middleware/auth.js";
 
 const router = Router();
 
 // Получить все мэтчи текущего пользователя
-router.get("/", authenticateToken, (req, res) => {
+router.get("/", authenticateToken, requirePin, (req, res) => {
 	try {
 		const userId = req.user.id;
 
@@ -44,7 +44,7 @@ router.get("/", authenticateToken, (req, res) => {
 });
 
 // Получить конкретный мэтч
-router.get("/:id", authenticateToken, (req, res) => {
+router.get("/:id", authenticateToken, requirePin, (req, res) => {
 	try {
 		const userId = req.user.id;
 		const matchId = req.params.id;
@@ -77,7 +77,7 @@ router.get("/:id", authenticateToken, (req, res) => {
 });
 
 // Удалить мэтч
-router.delete("/:id", authenticateToken, (req, res) => {
+router.delete("/:id", authenticateToken, requirePin, (req, res) => {
 	try {
 		const userId = req.user.id;
 		const matchId = req.params.id;

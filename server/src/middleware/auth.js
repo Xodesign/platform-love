@@ -24,13 +24,41 @@ export function authenticateToken(req, res, next) {
 			return res.status(404).json({ error: "Пользователь не найден" });
 		}
 
-		req.user = { id: decoded.userId };
+		req.user = {
+			id: decoded.userId,
+			// Старые токены (выданные до появления PIN-гейта) признака не имеют —
+			// они считаются неподтверждёнными, и сервер попросит подтвердить доступ
+			pinVerified: decoded.pinVerified === true,
+		};
 		next();
 	});
 }
 
-export function generateToken(userId) {
-	return jwt.sign({ userId }, JWT_SECRET, { expiresIn: "7d" });
+/**
+ * PIN — второй фактор. Раньше барьер жил только на клиенте: токен из
+ * /api/auth/login выдавался сразу после пароля и давал полный доступ к API,
+ * так что украденный пароль был равен угнанному аккаунту, а экран PIN можно
+ * было обойти простым запросом.
+ *
+ * 428 Precondition Required — не ошибка авторизации, а «докажи второй шаг»:
+ * клиент по этому коду уводит пользователя на экран PIN и не показывает «сессию
+ * истёк». Именно поэтому код отдельный от 401/403.
+ */
+export function requirePin(req, res, next) {
+	if (!req.user) {
+		return res.status(401).json({ error: "Токен не предоставлен" });
+	}
+	if (!req.user.pinVerified) {
+		return res.status(428).json({
+			error: "Подтвердите доступ: введите PIN-код",
+			code: "pin_required",
+		});
+	}
+	next();
+}
+
+export function generateToken(userId, { pinVerified = false } = {}) {
+	return jwt.sign({ userId, pinVerified }, JWT_SECRET, { expiresIn: "7d" });
 }
 
 // Токен администратора (role: admin)

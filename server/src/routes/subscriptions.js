@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import db from '../db/database.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requirePin } from '../middleware/auth.js';
 
 const router = Router();
 
 // Получить подписку пользователя
-router.get('/current', authenticateToken, (req, res) => {
+router.get('/current', authenticateToken, requirePin, (req, res) => {
   try {
     const userId = req.user.id;
 
@@ -33,7 +33,7 @@ router.get('/current', authenticateToken, (req, res) => {
 });
 
 // Создать подписку (заглушка для интеграции с платёжной системой)
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, requirePin, (req, res) => {
   try {
     const userId = req.user.id;
     const { plan } = req.body; // 'gold', 'premium'
@@ -70,7 +70,7 @@ router.post('/', authenticateToken, (req, res) => {
 });
 
 // Отменить подписку
-router.delete('/cancel', authenticateToken, (req, res) => {
+router.delete('/cancel', authenticateToken, requirePin, (req, res) => {
   try {
     const userId = req.user.id;
 

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./api.js";
 
@@ -6,6 +7,24 @@ const LOGO_URL =
 
 export default function MainMenuScreen() {
 	const navigate = useNavigate();
+	// Почта — единственный канал возврата доступа. Аккаунты, созданные до
+	// обязательной почты, сами о ней не узнают: напоминаем при входе в меню
+	const [showEmailNudge, setShowEmailNudge] = useState(false);
+
+	useEffect(() => {
+		let alive = true;
+		// Спрашиваем сервер, а не читаем localStorage: почту могли привязать
+		// с другого устройства
+		api
+			.getMe()
+			.then((u) => {
+				if (alive) setShowEmailNudge(!u?.email);
+			})
+			.catch(() => {});
+		return () => {
+			alive = false;
+		};
+	}, []);
 
 	// Функция открытия Яндекс Игр с автовходом
 	const openYandexGames = async () => {
@@ -266,6 +285,68 @@ export default function MainMenuScreen() {
 					</svg>
 				</button>
 			</div>
+
+			{showEmailNudge && (
+				<div
+					style={{
+						margin: "12px 16px 0",
+						padding: "14px 16px",
+						backgroundColor: "#FFF8E1",
+						border: "1px solid #FFE082",
+						borderRadius: 12,
+						display: "flex",
+						alignItems: "center",
+						gap: 12,
+					}}
+				>
+					<div style={{ flex: 1 }}>
+						<p
+							style={{
+								margin: 0,
+								fontSize: 14,
+								fontWeight: 600,
+								color: "#8A5A00",
+							}}
+						>
+							К аккаунту не привязана почта
+						</p>
+						<p style={{ margin: "4px 0 0", fontSize: 13, color: "#8A5A00" }}>
+							Добавьте — иначе при забытом PIN мы не сможем вернуть доступ.
+						</p>
+					</div>
+					<button
+						onClick={() => navigate("/email")}
+						style={{
+							border: "none",
+							backgroundColor: "#7B5EA7",
+							color: "white",
+							fontSize: 13,
+							fontWeight: 600,
+							padding: "8px 12px",
+							borderRadius: 8,
+							cursor: "pointer",
+							whiteSpace: "nowrap",
+						}}
+					>
+						Привязать
+					</button>
+					<button
+						onClick={() => setShowEmailNudge(false)}
+						aria-label="Закрыть"
+						style={{
+							border: "none",
+							background: "none",
+							color: "#8A5A00",
+							fontSize: 20,
+							lineHeight: 1,
+							cursor: "pointer",
+							padding: 4,
+						}}
+					>
+						×
+					</button>
+				</div>
+			)}
 
 			{/* Title */}
 			<div style={{ padding: "20px 20px 12px" }}>

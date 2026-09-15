@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import db from '../db/database.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requirePin } from '../middleware/auth.js';
 
 const router = Router();
 
 // Получить сообщения мэтча
-router.get('/match/:matchId', authenticateToken, (req, res) => {
+router.get('/match/:matchId', authenticateToken, requirePin, (req, res) => {
   try {
     const userId = req.user.id;
     const matchId = req.params.matchId;
@@ -42,7 +42,7 @@ router.get('/match/:matchId', authenticateToken, (req, res) => {
 });
 
 // Отправить сообщение
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, requirePin, (req, res) => {
   try {
     const userId = req.user.id;
     const { match_id, text } = req.body;
@@ -81,7 +81,7 @@ router.post('/', authenticateToken, (req, res) => {
 });
 
 // Количество непрочитанных сообщений
-router.get('/unread/count', authenticateToken, (req, res) => {
+router.get('/unread/count', authenticateToken, requirePin, (req, res) => {
   try {
     const userId = req.user.id;
 

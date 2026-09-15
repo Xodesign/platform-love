@@ -16,6 +16,7 @@ import {
 	useNavigate,
 	useLocation,
 } from "react-router-dom";
+import api from "./api.js";
 import OnboardingScreen, { isOnboardingDone } from "./OnboardingScreen";
 import MainMenuScreen from "./MainMenuScreen";
 import SwipeScreen from "./SwipeScreen";
@@ -1850,12 +1851,93 @@ function ForgotPasswordScreen() {
 // ============================================
 // SET PIN SCREEN
 // ============================================
+// PIN — второй фактор входа. Раньше барьер был только на клиенте, и сервер
+// открывал все эндпоинты токену из /api/auth/login: экран PIN обходился простым
+// запросом к API. Теперь сервер требует подтверждённый PIN (428), а этот экран
+// закрывает три ситуации:
+//   setup  — PIN ещё нет (сразу после регистрации): придумать и подтвердить
+//   verify — PIN есть, но токен выдан по одному паролю: просто подтвердить
+//            доступ, ничего не меняя (сюда же ведёт ответ 428)
+//   change — пользователь сам зашёл из Настроек: текущий + новый + подтверждение
 function SetPinScreen() {
+	const navigate = useNavigate();
+	const wantsChange =
+		new URLSearchParams(window.location.search).get("change") === "1";
+	// null = ещё не спросили сервер. Режим определяем по /auth/me, а не по
+	// localStorage: запис там может быть от другого (в том числе уже удалённого)
+	// аккаунта, а PIN могли поставить с другого устройства
+	const [state, setState] = useState(null);
+
+	useEffect(() => {
+		api
+			.getMe()
+			.then((u) =>
+				setState({ hasPin: !!u?.hasPin, pinVerified: !!u?.pinVerified }),
+			)
+			.catch(() => {
+				const me = JSON.parse(localStorage.getItem("user") || "{}");
+				setState({ hasPin: !!me.hasPin, pinVerified: false });
+			});
+	}, []);
+
+	const mode =
+		state === null
+			? null
+			: wantsChange || (state.hasPin && state.pinVerified)
+				? "change"
+				: state.hasPin
+					? "verify"
+					: "setup";
+
+	const [oldPin, setOldPin] = useState("");
 	const [pin, setPin] = useState("");
 	const [confirmPin, setConfirmPin] = useState("");
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState("");
-	const navigate = useNavigate();
+
+	const copy = {
+		setup: {
+			title: "Создайте PIN-код",
+			subtitle:
+				"4 цифры — с ними вы и будете входить. Забыли? Восстанавливаете почтой, которую указали при регистрации.",
+			button: "Сохранить PIN",
+		},
+		verify: {
+			title: "Подтвердите доступ",
+			subtitle:
+				"Вы вошли по паролю. Введите PIN-код — без него приложение не открывает данные.",
+			button: "Подтвердить",
+		},
+		change: {
+			title: "Смените PIN-код",
+			subtitle: "Сначала текущий PIN, затем новый — дважды.",
+			button: "Сохранить PIN",
+		},
+		null: {
+			title: "PIN-код",
+			subtitle: "",
+			button: "Сохранить PIN",
+		},
+	}[mode ?? "null"];
+
+	if (mode === null) {
+		return (
+			<div
+				style={{
+					minHeight: "100vh",
+					backgroundColor: "#F5F5F5",
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					fontFamily: "Inter, system-ui, sans-serif",
+					fontSize: 14,
+					color: "#8E8E8E",
+				}}
+			>
+				Загружаем…
+			</div>
+		);
+	}
 
 	const handlePinChange = (setter) => (value) => {
 		const digits = value.replace(/\D/g, "").slice(0, 4);
@@ -1863,54 +1945,49 @@ function SetPinScreen() {
 		setError("");
 	};
 
-	const handleSetPin = async (e) => {
+	const ready =
+		pin.length === 4 &&
+		(mode === "verify" || confirmPin.length === 4) &&
+		(mode !== "change" || oldPin.length === 4);
+
+	const handleSubmit = async (e) => {
 		e.preventDefault();
-		if (!/^\d{4}$/.test(pin) || pin.length !== 4) {
+		if (!ready) {
 			setError("Введите 4 цифры");
 			return;
 		}
-		if (pin !== confirmPin) {
+		if (mode !== "verify" && pin !== confirmPin) {
 			setError("PIN-коды не совпадают");
 			return;
 		}
 		setLoading(true);
 		setError("");
 		try {
-			const token = localStorage.getItem("token");
-			const response = await fetch("/api/auth/set-pin", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
-				},
-				body: JSON.stringify({ pin }),
-			});
-			const data = await response.json();
-			if (response.ok) {
-				// Запоминаем логин: в следующий раз приложение сразу попросит PIN
-				const me = JSON.parse(localStorage.getItem("user") || "{}");
-				if (me.login) localStorage.setItem("pin_login", me.login);
-				// Отмечаем у себя, что PIN больше не ждём
-				me.hasPin = true;
-				if (typeof data.hasProfile === "boolean")
-					me.hasProfile = data.hasProfile;
-				localStorage.setItem("user", JSON.stringify(me));
-				const hasProfile =
-					typeof data.hasProfile === "boolean"
-						? data.hasProfile
-						: !!me.hasProfile;
-				navigate(hasProfile ? "/menu" : "/profile");
-			} else {
-				setError(data.error || "Ошибка");
-			}
+			const data =
+				mode === "verify"
+					? await api.verifyPin(pin)
+					: await api.setPin(pin, mode === "change" ? oldPin : undefined);
+
+			// Запоминаем логин: в следующий раз приложение сразу попросит PIN
+			const stored = JSON.parse(localStorage.getItem("user") || "{}");
+			if (stored.login) localStorage.setItem("pin_login", stored.login);
+			stored.hasPin = true;
+			if (typeof data.hasProfile === "boolean")
+				stored.hasProfile = data.hasProfile;
+			localStorage.setItem("user", JSON.stringify(stored));
+			const hasProfile =
+				typeof data.hasProfile === "boolean"
+					? data.hasProfile
+					: !!stored.hasProfile;
+			navigate(hasProfile ? "/menu" : "/profile", { replace: true });
 		} catch (err) {
-			setError("Ошибка сохранения");
+			setError(err.message || "Ошибка сохранения");
 		} finally {
 			setLoading(false);
 		}
 	};
 
-	// Выход с экрана установки PIN: сессия сбрасывается, аккаунт остаётся
+	// Выход с экрана PIN: сессия сбрасывается, аккаунт остаётся
 	const handleExit = async () => {
 		const token = localStorage.getItem("token");
 		try {
@@ -1925,6 +2002,199 @@ function SetPinScreen() {
 		localStorage.removeItem("user");
 		localStorage.removeItem("pin_login");
 		navigate("/", { replace: true });
+	};
+
+	const PinField = ({ label, value, onChange, invalid }) => (
+		<div style={{ marginBottom: 16 }}>
+			<p style={{ fontSize: 14, color: "#8E8E8E", marginBottom: 8 }}>{label}</p>
+			<input
+				type="text"
+				inputMode="numeric"
+				pattern="[0-9]*"
+				placeholder="____"
+				value={value}
+				onChange={(e) => onChange(e.target.value)}
+				maxLength={4}
+				autoFocus={label.toLowerCase().includes("текущ")}
+				style={{
+					width: "100%",
+					padding: "16px",
+					border: invalid ? "2px solid #E53935" : "2px solid #E0E0E0",
+					borderRadius: 12,
+					backgroundColor: "white",
+					fontSize: 28,
+					letterSpacing: "20px",
+					textAlign: "center",
+					outline: "none",
+				}}
+			/>
+		</div>
+	);
+
+	return (
+		<div
+			style={{
+				minHeight: "100vh",
+				backgroundColor: "#F5F5F5",
+				display: "flex",
+				alignItems: "center",
+				justifyContent: "center",
+				padding: "16px",
+				fontFamily: "Inter, system-ui, sans-serif",
+			}}
+		>
+			<div
+				style={{
+					width: "100%",
+					maxWidth: 375,
+					padding: "64px 24px 24px",
+					display: "flex",
+					flexDirection: "column",
+					alignItems: "center",
+				}}
+			>
+				<img
+					src={LOGO_URL}
+					alt="Logo"
+					style={{ width: 200, height: "auto", marginBottom: 8 }}
+				/>
+				<h2 style={{ fontSize: 20, fontWeight: 600, margin: "24px 0 8px" }}>
+					{copy.title}
+				</h2>
+				<p
+					style={{
+						fontSize: 14,
+						color: "#8E8E8E",
+						marginBottom: 24,
+						textAlign: "center",
+					}}
+				>
+					{copy.subtitle}
+				</p>
+				<form onSubmit={handleSubmit} style={{ width: "100%" }}>
+					{mode === "change" && (
+						<PinField
+							label="Текущий PIN"
+							value={oldPin}
+							onChange={handlePinChange(setOldPin)}
+						/>
+					)}
+					<PinField
+						label={mode === "verify" ? "PIN-код" : "Новый PIN-код"}
+						value={pin}
+						onChange={handlePinChange(setPin)}
+						invalid={!!error}
+					/>
+					{mode !== "verify" && (
+						<PinField
+							label="Подтвердите PIN"
+							value={confirmPin}
+							onChange={handlePinChange(setConfirmPin)}
+							invalid={!!error}
+						/>
+					)}
+					{error && (
+						<p
+							style={{
+								color: "#E53935",
+								fontSize: 13,
+								textAlign: "center",
+								marginBottom: 12,
+							}}
+						>
+							{error}
+						</p>
+					)}
+					<button
+						type="submit"
+						disabled={loading || !ready}
+						style={{
+							width: "100%",
+							padding: "16px",
+							backgroundColor: loading || !ready ? "#A89BC7" : "#7B5EA7",
+							color: "white",
+							borderRadius: 12,
+							fontSize: 16,
+							fontWeight: 600,
+							border: "none",
+							cursor: "pointer",
+							boxShadow: "0 4px 12px rgba(123, 94, 167, 0.3)",
+						}}
+					>
+						{loading ? "Проверяем..." : copy.button}
+					</button>
+				</form>
+				{/* В ловушке держать не должны: выход сбрасывает сессию, но не аккаунт */}
+				<button
+					onClick={handleExit}
+					style={{
+						marginTop: 16,
+						background: "none",
+						border: "none",
+						color: "#7B5EA7",
+						fontSize: 14,
+						textDecoration: "underline",
+						cursor: "pointer",
+					}}
+				>
+					Передумали? Выйти и войти позже
+				</button>
+			</div>
+		</div>
+	);
+}
+
+// «Сменить кодовое слово» в Настройках раньше было декоративным переключателем:
+// смена пароля существовала только на пути «Забыли PIN или пароль» и требовала
+// доступа к почте. Здесь пароль меняют изнутри сессии — с текущим паролем и
+// подтверждением нового. Эндпоинт требует подтверждённый PIN.
+function PasswordScreen() {
+	const navigate = useNavigate();
+	const [current, setCurrent] = useState("");
+	const [next, setNext] = useState("");
+	const [repeat, setRepeat] = useState("");
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState("");
+	const [done, setDone] = useState("");
+
+	const submit = async (e) => {
+		e.preventDefault();
+		setError("");
+		setDone("");
+		if (!current) {
+			setError("Введите текущий пароль");
+			return;
+		}
+		if (next.length < 6) {
+			setError("Новый пароль минимум 6 символов");
+			return;
+		}
+		if (next !== repeat) {
+			setError("Новые пароли не совпадают");
+			return;
+		}
+		setLoading(true);
+		try {
+			await api.changePassword(current, next);
+			setDone("Пароль изменён");
+			setCurrent("");
+			setNext("");
+			setRepeat("");
+		} catch (err) {
+			setError(err.message || "Не удалось изменить пароль");
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const field = {
+		width: "100%",
+		padding: "16px",
+		border: "2px solid #E0E0E0",
+		borderRadius: 12,
+		backgroundColor: "white",
+		fontSize: 16,
+		outline: "none",
 	};
 
 	return (
@@ -1955,7 +2225,7 @@ function SetPinScreen() {
 					style={{ width: 200, height: "auto", marginBottom: 8 }}
 				/>
 				<h2 style={{ fontSize: 20, fontWeight: 600, margin: "24px 0 8px" }}>
-					Создайте PIN-код
+					Сменить кодовое слово
 				</h2>
 				<p
 					style={{
@@ -1965,58 +2235,49 @@ function SetPinScreen() {
 						textAlign: "center",
 					}}
 				>
-					4 цифры — с ними вы и будете входить. Забыли? Восстанавливаете почтой,
-					которую указали при регистрации.
+					Пароль нужен для входа, если забыли PIN. Минимум 6 символов.
 				</p>
-				<form onSubmit={handleSetPin} style={{ width: "100%" }}>
+				<form onSubmit={submit} style={{ width: "100%" }}>
 					<div style={{ marginBottom: 16 }}>
 						<p style={{ fontSize: 14, color: "#8E8E8E", marginBottom: 8 }}>
-							PIN-код
+							Текущий пароль
 						</p>
 						<input
-							type="text"
-							inputMode="numeric"
-							pattern="[0-9]*"
-							placeholder="____"
-							value={pin}
-							onChange={(e) => handlePinChange(setPin)(e.target.value)}
-							maxLength={4}
-							style={{
-								width: "100%",
-								padding: "16px",
-								border: "2px solid #E0E0E0",
-								borderRadius: 12,
-								backgroundColor: "white",
-								fontSize: 28,
-								letterSpacing: "20px",
-								textAlign: "center",
-								outline: "none",
+							type="password"
+							value={current}
+							onChange={(e) => {
+								setCurrent(e.target.value);
+								setError("");
 							}}
+							style={field}
+						/>
+					</div>
+					<div style={{ marginBottom: 16 }}>
+						<p style={{ fontSize: 14, color: "#8E8E8E", marginBottom: 8 }}>
+							Новый пароль
+						</p>
+						<input
+							type="password"
+							value={next}
+							onChange={(e) => {
+								setNext(e.target.value);
+								setError("");
+							}}
+							style={field}
 						/>
 					</div>
 					<div style={{ marginBottom: 24 }}>
 						<p style={{ fontSize: 14, color: "#8E8E8E", marginBottom: 8 }}>
-							Подтвердите PIN
+							Повторите новый пароль
 						</p>
 						<input
-							type="text"
-							inputMode="numeric"
-							pattern="[0-9]*"
-							placeholder="____"
-							value={confirmPin}
-							onChange={(e) => handlePinChange(setConfirmPin)(e.target.value)}
-							maxLength={4}
-							style={{
-								width: "100%",
-								padding: "16px",
-								border: error ? "2px solid #E53935" : "2px solid #E0E0E0",
-								borderRadius: 12,
-								backgroundColor: "white",
-								fontSize: 28,
-								letterSpacing: "20px",
-								textAlign: "center",
-								outline: "none",
+							type="password"
+							value={repeat}
+							onChange={(e) => {
+								setRepeat(e.target.value);
+								setError("");
 							}}
+							style={field}
 						/>
 					</div>
 					{error && (
@@ -2031,16 +2292,25 @@ function SetPinScreen() {
 							{error}
 						</p>
 					)}
+					{done && (
+						<p
+							style={{
+								color: "#2E7D32",
+								fontSize: 13,
+								textAlign: "center",
+								marginBottom: 12,
+							}}
+						>
+							{done}
+						</p>
+					)}
 					<button
 						type="submit"
-						disabled={loading || pin.length !== 4 || confirmPin.length !== 4}
+						disabled={loading}
 						style={{
 							width: "100%",
 							padding: "16px",
-							backgroundColor:
-								loading || pin.length !== 4 || confirmPin.length !== 4
-									? "#A89BC7"
-									: "#7B5EA7",
+							backgroundColor: loading ? "#A89BC7" : "#7B5EA7",
 							color: "white",
 							borderRadius: 12,
 							fontSize: 16,
@@ -2050,12 +2320,11 @@ function SetPinScreen() {
 							boxShadow: "0 4px 12px rgba(123, 94, 167, 0.3)",
 						}}
 					>
-						{loading ? "Сохранение..." : "Сохранить PIN"}
+						{loading ? "Сохранение..." : "Изменить пароль"}
 					</button>
 				</form>
-				{/* Без PIN внутрь не пускаем, но и в ловушке держать не должны */}
 				<button
-					onClick={handleExit}
+					onClick={() => navigate("/settings")}
 					style={{
 						marginTop: 16,
 						background: "none",
@@ -2066,7 +2335,7 @@ function SetPinScreen() {
 						cursor: "pointer",
 					}}
 				>
-					Передумали? Выйти и войти позже
+					← Назад
 				</button>
 			</div>
 		</div>
@@ -2100,20 +2369,13 @@ function EmailScreen() {
 			.catch(() => {});
 	}, []);
 
-	const post = async (path, body) => {
-		const token = localStorage.getItem("token");
-		const response = await fetch(`/api/auth/${path}`, {
+	// Через общий api-слой: он подставляет токен и поднимает «pin-required»
+	// на ответе 428, иначе запрос к почте молча падал бы с текстом ошибки
+	const post = (path, body) =>
+		api.request(`/auth/${path}`, {
 			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${token}`,
-			},
 			body: JSON.stringify(body),
 		});
-		const data = await response.json();
-		if (!response.ok) throw new Error(data.error || "Не получилось");
-		return data;
-	};
 
 	const sendCode = async () => {
 		setLoading(true);
@@ -3276,12 +3538,29 @@ function RootGate() {
 	return <LoginScreen />;
 }
 
+// Сервер ответил 428 — сессия жива, но второго фактора нет. Уводим на экран PIN:
+// там пользователь подтверждает доступ и получает валидный токен, не перелогинясь
+function PinGateListener() {
+	const navigate = useNavigate();
+	const location = useLocation();
+	useEffect(() => {
+		const onPinRequired = () => {
+			if (location.pathname !== "/set-pin")
+				navigate("/set-pin", { replace: true });
+		};
+		window.addEventListener("pin-required", onPinRequired);
+		return () => window.removeEventListener("pin-required", onPinRequired);
+	}, [navigate, location.pathname]);
+	return null;
+}
+
 function App() {
 	const [gender, setGender] = useState("male");
 
 	return (
 		<GenderContext.Provider value={{ gender, setGender }}>
 			<BrowserRouter>
+				<PinGateListener />
 				<Suspense fallback={<RouteFallback />}>
 					<Routes>
 						<Route path="/" element={<RootGate />} />
@@ -3296,6 +3575,7 @@ function App() {
 						<Route element={<RequireAuth />}>
 							<Route path="/set-pin" element={<SetPinScreen />} />
 							<Route path="/email" element={<EmailScreen />} />
+							<Route path="/password" element={<PasswordScreen />} />
 							<Route path="/profile" element={<ProfileScreen />} />
 							<Route path="/questions" element={<QuestionScreen />} />
 							<Route path="/menu" element={<MainMenuScreen />} />

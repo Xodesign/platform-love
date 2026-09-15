@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { v4 as uuidv4 } from "uuid";
 import db from "../db/database.js";
-import { authenticateToken } from "../middleware/auth.js";
+import { authenticateToken, requirePin } from "../middleware/auth.js";
 import { answersMatch } from "../utils/answerAliases.js";
 
 const router = Router();
@@ -23,7 +23,7 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 // ============================================
 
 // Сохранить ответы пользователя
-router.post("/answers", authenticateToken, (req, res) => {
+router.post("/answers", authenticateToken, requirePin, (req, res) => {
 	try {
 		const userId = req.user.id;
 		const { answers } = req.body;
@@ -59,7 +59,7 @@ router.post("/answers", authenticateToken, (req, res) => {
 });
 
 // Получить ответы пользователя
-router.get("/answers", authenticateToken, (req, res) => {
+router.get("/answers", authenticateToken, requirePin, (req, res) => {
 	try {
 		const userId = req.user.id;
 
@@ -86,7 +86,7 @@ router.get("/answers", authenticateToken, (req, res) => {
 // ============================================
 
 // Получить настройки поиска
-router.get("/settings", authenticateToken, (req, res) => {
+router.get("/settings", authenticateToken, requirePin, (req, res) => {
 	try {
 		const userId = req.user.id;
 
@@ -125,7 +125,7 @@ router.get("/settings", authenticateToken, (req, res) => {
 });
 
 // Обновить настройки поиска
-router.put("/settings", authenticateToken, (req, res) => {
+router.put("/settings", authenticateToken, requirePin, (req, res) => {
 	try {
 		const userId = req.user.id;
 		const { min_age, max_age, max_distance, looking_for, filters } = req.body;
@@ -181,7 +181,7 @@ router.put("/settings", authenticateToken, (req, res) => {
 // ============================================
 
 // Получить кандидатов с фильтрами и совместимостью
-router.get("/candidates", authenticateToken, (req, res) => {
+router.get("/candidates", authenticateToken, requirePin, (req, res) => {
 	try {
 		const userId = req.user.id;
 		const { limit = 20 } = req.query;

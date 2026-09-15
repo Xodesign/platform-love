@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import db from "../db/database.js";
-import { authenticateToken } from "../middleware/auth.js";
+import { authenticateToken, requirePin } from "../middleware/auth.js";
 
 const router = Router();
 const uid = () => randomUUID();
@@ -32,7 +32,7 @@ const publicUser = (u) => ({
 });
 
 // Входящие лайки (кто лайкнул меня)
-router.get("/likes/incoming", authenticateToken, (req, res) => {
+router.get("/likes/incoming", authenticateToken, requirePin, (req, res) => {
 	const me = req.user.id;
 	const rows = db
 		.prepare(
@@ -54,7 +54,7 @@ router.get("/likes/incoming", authenticateToken, (req, res) => {
 });
 
 // Уведомления
-router.get("/notifications", authenticateToken, (req, res) => {
+router.get("/notifications", authenticateToken, requirePin, (req, res) => {
 	res.json(
 		db
 			.prepare(
@@ -64,7 +64,7 @@ router.get("/notifications", authenticateToken, (req, res) => {
 			.map((n) => ({ ...n, time: relTime(n.created_at) })),
 	);
 });
-router.post("/notifications/read", authenticateToken, (req, res) => {
+router.post("/notifications/read", authenticateToken, requirePin, (req, res) => {
 	db.prepare("UPDATE notifications SET is_read=1 WHERE user_id=?").run(
 		req.user.id,
 	);
@@ -72,7 +72,7 @@ router.post("/notifications/read", authenticateToken, (req, res) => {
 });
 
 // Чёрный список пользователя
-router.get("/blacklist", authenticateToken, (req, res) => {
+router.get("/blacklist", authenticateToken, requirePin, (req, res) => {
 	res.json(
 		db
 			.prepare(
@@ -102,7 +102,7 @@ router.get("/blacklist", authenticateToken, (req, res) => {
 			}),
 	);
 });
-router.post("/blacklist", authenticateToken, (req, res) => {
+router.post("/blacklist", authenticateToken, requirePin, (req, res) => {
 	const { userId, reason } = req.body || {};
 	if (!userId) return res.status(400).json({ error: "userId обязателен" });
 	db.prepare(
@@ -110,7 +110,7 @@ router.post("/blacklist", authenticateToken, (req, res) => {
 	).run(uid(), req.user.id, userId, reason || "—");
 	res.json({ ok: true });
 });
-router.delete("/blacklist/:userId", authenticateToken, (req, res) => {
+router.delete("/blacklist/:userId", authenticateToken, requirePin, (req, res) => {
 	db.prepare("DELETE FROM blocked_users WHERE owner_id=? AND blocked_id=?").run(
 		req.user.id,
 		req.params.userId,
@@ -142,7 +142,7 @@ const postRow = (p, me) => {
 		time: relTime(p.created_at),
 	};
 };
-router.get("/posts", authenticateToken, (req, res) => {
+router.get("/posts", authenticateToken, requirePin, (req, res) => {
 	res.json(
 		db
 			.prepare("SELECT * FROM posts ORDER BY created_at DESC")
@@ -150,7 +150,7 @@ router.get("/posts", authenticateToken, (req, res) => {
 			.map((p) => postRow(p, req.user.id)),
 	);
 });
-router.get("/posts/mine", authenticateToken, (req, res) => {
+router.get("/posts/mine", authenticateToken, requirePin, (req, res) => {
 	res.json(
 		db
 			.prepare("SELECT * FROM posts WHERE user_id=? ORDER BY created_at DESC")
@@ -158,7 +158,7 @@ router.get("/posts/mine", authenticateToken, (req, res) => {
 			.map((p) => postRow(p, req.user.id)),
 	);
 });
-router.post("/posts", authenticateToken, (req, res) => {
+router.post("/posts", authenticateToken, requirePin, (req, res) => {
 	const text = req.body?.text;
 	if (!text) return res.status(400).json({ error: "Пустой пост" });
 	const id = uid();
@@ -171,7 +171,7 @@ router.post("/posts", authenticateToken, (req, res) => {
 		postRow(db.prepare("SELECT * FROM posts WHERE id=?").get(id), req.user.id),
 	);
 });
-router.post("/posts/:id/like", authenticateToken, (req, res) => {
+router.post("/posts/:id/like", authenticateToken, requirePin, (req, res) => {
 	const existing = db
 		.prepare("SELECT id FROM post_likes WHERE post_id=? AND user_id=?")
 		.get(req.params.id, req.user.id);

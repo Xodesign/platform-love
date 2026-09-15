@@ -1,11 +1,11 @@
 import { Router } from "express";
 import db from "../db/database.js";
-import { authenticateToken } from "../middleware/auth.js";
+import { authenticateToken, requirePin } from "../middleware/auth.js";
 
 const router = Router();
 
 // Получить профиль пользователя
-router.get("/:id", authenticateToken, (req, res) => {
+router.get("/:id", authenticateToken, requirePin, (req, res) => {
 	try {
 		const user = db
 			.prepare("SELECT * FROM users WHERE id = ?")
@@ -36,7 +36,7 @@ router.get("/:id", authenticateToken, (req, res) => {
 });
 
 // Обновить профиль
-router.put("/:id", authenticateToken, (req, res) => {
+router.put("/:id", authenticateToken, requirePin, (req, res) => {
 	try {
 		if (req.user.id !== req.params.id) {
 			return res.status(403).json({ error: "Нет доступа" });
