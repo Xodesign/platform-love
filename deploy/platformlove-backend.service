@@ -1,10 +1,12 @@
 # Systemd сервис для backend Node.js
 # Поместить в /etc/systemd/system/platformlove-backend.service
-# Затем:
-#   systemctl daemon-reload
-#   systemctl enable platformlove-backend
-#   systemctl start platformlove-backend
-#   systemctl status platformlove-backend
+#
+# deploy.sh синхронизирует этот файл с сервером сам (шаг 5/6) — правьте его здесь,
+# а не только на VPS. Раньше unit на сервере никто не обновлял, и там остался
+# вариант с User=root, хотя в репозитории давно был www-data: набегал дрейф.
+#
+# Ручная установка:
+#   systemctl daemon-reload && systemctl enable --now platformlove-backend
 
 [Unit]
 Description=Platform Love Backend API
@@ -12,19 +14,27 @@ After=network.target
 
 [Service]
 Type=simple
+# Не root. Бэкенду нужны на запись только server/uploads и server/database.sqlite —
+# они принадлежат www-data. При эксплуатации любой RCE злоумышленник получает
+# права этого пользователя, а не полный контроль над системой.
 User=www-data
+Group=www-data
 WorkingDirectory=/var/www/platformlove.com/server
 Environment=NODE_ENV=production
 ExecStart=/usr/bin/node src/index.js
 Restart=always
 RestartSec=10
-StandardOutput=syslog
-StandardError=syslog
-SyslogIdentifier=platformlove-backend
 
 # Лимиты
 LimitNOFILE=65536
 LimitNPROC=4096
+
+# Сужение поверхности: запрет setuid, приватный /tmp, системные каталоги только на чтение
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+# Вывод — в journald (journalctl -u platformlove-backend)
 
 [Install]
 WantedBy=multi-user.target

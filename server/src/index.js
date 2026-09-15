@@ -75,11 +75,12 @@ const storage = multer.diskStorage({
 		const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
 		// Берём только имя файла, без каталогов и без расширения: расширение
 		// выставим по настоящему типу из магических байтов, а не из поля клиента.
-		const base = (file.originalname || "photo")
-			.replace(/.*[\\/]/, "")
-			.replace(/\.[^.]+$/, "")
-			.replace(/[^A-Za-z0-9_-]+/g, "-")
-			.slice(0, 40) || "photo";
+		const base =
+			(file.originalname || "photo")
+				.replace(/.*[\\/]/, "")
+				.replace(/\.[^.]+$/, "")
+				.replace(/[^A-Za-z0-9_-]+/g, "-")
+				.slice(0, 40) || "photo";
 		const extByMime = {
 			"image/jpeg": "jpg",
 			"image/png": "png",
@@ -126,7 +127,10 @@ app.post(
 		fs.readSync(fh, buf, 0, 12, 0);
 		fs.closeSync(fh);
 		const sig = MAGIC[req.file.mimetype];
-		if (!sig || buf.subarray(0, sig.length).toString("latin1") !== sig.toString("latin1")) {
+		if (
+			!sig ||
+			buf.subarray(0, sig.length).toString("latin1") !== sig.toString("latin1")
+		) {
 			fs.unlinkSync(req.file.path);
 			return res.status(400).json({ error: "Файл не является изображением" });
 		}
@@ -186,10 +190,14 @@ app.use((err, _req, res, _next) => {
 	if (err && err.code === "ONLY_IMAGES_ALLOWED") {
 		return res
 			.status(400)
-			.json({ error: "Можно загружать только изображения (jpg, png, webp, gif)" });
+			.json({
+				error: "Можно загружать только изображения (jpg, png, webp, gif)",
+			});
 	}
 	if (err && err.code === "LIMIT_FILE_SIZE") {
-		return res.status(400).json({ error: "Файл слишком большой (максимум 5 МБ)" });
+		return res
+			.status(400)
+			.json({ error: "Файл слишком большой (максимум 5 МБ)" });
 	}
 	console.error("Server error:", err);
 	res.status(500).json({ error: "Внутренняя ошибка сервера" });

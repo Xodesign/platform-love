@@ -141,8 +141,23 @@ cd server; \
 node -e 'import(\"./src/db/migrate.js\").then(m=>{m.migrate();console.log(\"  ✔ миграция схемы применена\")}).catch(e=>{console.error(\"миграция: \"+e.message);process.exit(1)})'" ||
 	die "Выкладка или миграция завершились ошибкой"
 
-# ---------- 5. перезапуск ----------
-step "5/6. Перезапуск сервиса"
+# ---------- 5. unit, права, перезапуск ----------
+step "5/6. Systemd unit, права и перезапуск сервиса"
+# Unit синхронизируется при каждом деплое: раньше его никто не обновлял, и на сервере
+# остался вариант с User=root, хотя в репозитории давно был www-data.
+"${SCP_BASE[@]}" -q "$PROJECT_DIR/deploy/platformlove-backend.service" "$VPS_USER@$VPS_HOST:/tmp/platformlove-unit.${TS}" ||
+	die "не удалось загрузить unit-файл"
+RSH "set -e; \
+if ! cmp -s /tmp/platformlove-unit.${TS} /etc/systemd/system/${SERVICE}; then \
+  cp /etc/systemd/system/${SERVICE} ${BACKUP_DIR}/${SERVICE}.${TS}.bak 2>/dev/null || true; \
+  mv /tmp/platformlove-unit.${TS} /etc/systemd/system/${SERVICE}; \
+  systemctl daemon-reload; \
+  echo '  ✔ unit обновлён (бывший — в ${BACKUP_DIR})'; \
+else rm -f /tmp/platformlove-unit.${TS}; echo '  ✔ unit актуален'; fi; \
+chown -R www-data:www-data ${APP_DIR}/server; \
+chmod 600 ${APP_DIR}/server/.env 2>/dev/null || true; \
+echo '  ✔ server/ принадлежит www-data, .env — 600'" ||
+	die "Не удалось применить unit/права"
 RSH "set -e; systemctl restart ${SERVICE}; sleep 4; \
 systemctl is-active --quiet ${SERVICE} && echo '  ✔ сервис active' || { journalctl -u ${SERVICE} -n 15 --no-pager; exit 1; }" ||
 	{

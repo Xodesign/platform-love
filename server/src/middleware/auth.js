@@ -6,7 +6,9 @@ import db from "../db/database.js";
 // (включая роль админа). В dev-режиме фолбэк допустим, но прод должен падать.
 const JWT_SECRET = process.env.JWT_SECRET || "platform-love-secret-key-2024";
 if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
-	console.error("\nFATAL: JWT_SECRET не задан в продакшене — запуск невозможен.\n");
+	console.error(
+		"\nFATAL: JWT_SECRET не задан в продакшене — запуск невозможен.\n",
+	);
 	process.exit(1);
 }
 
