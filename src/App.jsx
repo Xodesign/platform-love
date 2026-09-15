@@ -50,9 +50,7 @@ const AdminComplaintsScreen = lazy(
 );
 const AdminProfileScreen = lazy(() => import("./admin/AdminProfileScreen"));
 const AdminDashboard = lazy(() => import("./admin/AdminDashboard"));
-const AdminBlacklistScreen = lazy(
-	() => import("./admin/AdminBlacklistScreen"),
-);
+const AdminBlacklistScreen = lazy(() => import("./admin/AdminBlacklistScreen"));
 const AdminModerationScreen = lazy(
 	() => import("./admin/AdminModerationScreen"),
 );
@@ -3155,60 +3153,60 @@ function App() {
 		<GenderContext.Provider value={{ gender, setGender }}>
 			<BrowserRouter>
 				<Suspense fallback={<RouteFallback />}>
-				<Routes>
-					<Route path="/" element={<RootGate />} />
-					{/* /login — привычная ссылка из рассылок и старых закладок: экран входа живёт на "/" */}
-					<Route path="/login" element={<RootGate />} />
-					<Route path="/onboarding" element={<OnboardingScreen />} />
-					<Route path="/register" element={<RegisterScreen />} />
-					<Route path="/set-pin" element={<SetPinScreen />} />
-					<Route path="/forgot-password" element={<ForgotPasswordScreen />} />
-					<Route path="/verify" element={<VerifyScreen />} />
-					<Route path="/auth/yandex/callback" element={<YandexCallback />} />
+					<Routes>
+						<Route path="/" element={<RootGate />} />
+						{/* /login — привычная ссылка из рассылок и старых закладок: экран входа живёт на "/" */}
+						<Route path="/login" element={<RootGate />} />
+						<Route path="/onboarding" element={<OnboardingScreen />} />
+						<Route path="/register" element={<RegisterScreen />} />
+						<Route path="/set-pin" element={<SetPinScreen />} />
+						<Route path="/forgot-password" element={<ForgotPasswordScreen />} />
+						<Route path="/verify" element={<VerifyScreen />} />
+						<Route path="/auth/yandex/callback" element={<YandexCallback />} />
 
-					{/* Экраны, требующие входа */}
-					<Route element={<RequireAuth />}>
-						<Route path="/profile" element={<ProfileScreen />} />
-						<Route path="/questions" element={<QuestionScreen />} />
-						<Route path="/menu" element={<MainMenuScreen />} />
-						<Route path="/swipe" element={<SwipeScreen />} />
-						<Route path="/wall" element={<WallScreen />} />
-						<Route path="/match" element={<MatchScreen />} />
-						<Route path="/likes" element={<LikesScreen />} />
-						<Route path="/fans" element={<FansScreen />} />
-						<Route path="/notifications" element={<NotificationsScreen />} />
-						<Route path="/messages" element={<MessagesScreen />} />
-						<Route path="/feed" element={<FeedScreen />} />
-						<Route path="/friends" element={<FriendsScreen />} />
-						<Route path="/user-profile" element={<UserProfileScreen />} />
-						<Route path="/chat/:id" element={<ChatScreen />} />
-						<Route path="/settings" element={<SettingsScreen />} />
-						<Route path="/subscription" element={<SubscriptionScreen />} />
-						<Route path="/blacklist" element={<BlacklistScreen />} />
-					</Route>
+						{/* Экраны, требующие входа */}
+						<Route element={<RequireAuth />}>
+							<Route path="/profile" element={<ProfileScreen />} />
+							<Route path="/questions" element={<QuestionScreen />} />
+							<Route path="/menu" element={<MainMenuScreen />} />
+							<Route path="/swipe" element={<SwipeScreen />} />
+							<Route path="/wall" element={<WallScreen />} />
+							<Route path="/match" element={<MatchScreen />} />
+							<Route path="/likes" element={<LikesScreen />} />
+							<Route path="/fans" element={<FansScreen />} />
+							<Route path="/notifications" element={<NotificationsScreen />} />
+							<Route path="/messages" element={<MessagesScreen />} />
+							<Route path="/feed" element={<FeedScreen />} />
+							<Route path="/friends" element={<FriendsScreen />} />
+							<Route path="/user-profile" element={<UserProfileScreen />} />
+							<Route path="/chat/:id" element={<ChatScreen />} />
+							<Route path="/settings" element={<SettingsScreen />} />
+							<Route path="/subscription" element={<SubscriptionScreen />} />
+							<Route path="/blacklist" element={<BlacklistScreen />} />
+						</Route>
 
-					{/* Admin Routes */}
-					<Route path="/admin/login" element={<AdminLoginScreen />} />
-					<Route path="/admin" element={<AdminLayout />}>
-						<Route index element={<AdminDashboard />} />
-						<Route path="orders" element={<AdminOrdersScreen />} />
-						<Route path="orders/:id" element={<AdminOrderDetailScreen />} />
-						<Route path="payment" element={<AdminPaymentScreen />} />
-						<Route path="users" element={<AdminUsersScreen />} />
-						<Route path="users/:id" element={<AdminUserDetailScreen />} />
-						<Route path="support" element={<AdminSupportScreen />} />
-						<Route path="chat/:id" element={<AdminChatScreen />} />
-						<Route path="complaints" element={<AdminComplaintsScreen />} />
-						<Route path="profile" element={<AdminProfileScreen />} />
-						<Route path="blacklist" element={<AdminBlacklistScreen />} />
-						<Route path="moderation" element={<AdminModerationScreen />} />
-						<Route path="logs" element={<AdminLogsScreen />} />
-						<Route path="settings" element={<AdminSettingsScreen />} />
-					</Route>
+						{/* Admin Routes */}
+						<Route path="/admin/login" element={<AdminLoginScreen />} />
+						<Route path="/admin" element={<AdminLayout />}>
+							<Route index element={<AdminDashboard />} />
+							<Route path="orders" element={<AdminOrdersScreen />} />
+							<Route path="orders/:id" element={<AdminOrderDetailScreen />} />
+							<Route path="payment" element={<AdminPaymentScreen />} />
+							<Route path="users" element={<AdminUsersScreen />} />
+							<Route path="users/:id" element={<AdminUserDetailScreen />} />
+							<Route path="support" element={<AdminSupportScreen />} />
+							<Route path="chat/:id" element={<AdminChatScreen />} />
+							<Route path="complaints" element={<AdminComplaintsScreen />} />
+							<Route path="profile" element={<AdminProfileScreen />} />
+							<Route path="blacklist" element={<AdminBlacklistScreen />} />
+							<Route path="moderation" element={<AdminModerationScreen />} />
+							<Route path="logs" element={<AdminLogsScreen />} />
+							<Route path="settings" element={<AdminSettingsScreen />} />
+						</Route>
 
-					{/* Неизвестный адрес вместо пустого экрана — обратно на вход */}
-					<Route path="*" element={<Navigate to="/" replace />} />
-				</Routes>
+						{/* Неизвестный адрес вместо пустого экрана — обратно на вход */}
+						<Route path="*" element={<Navigate to="/" replace />} />
+					</Routes>
 				</Suspense>
 			</BrowserRouter>
 		</GenderContext.Provider>

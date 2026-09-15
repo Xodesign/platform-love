@@ -20,7 +20,8 @@ async function hashPin(value) {
 		.join("");
 }
 
-const isPinStored = () => /^[a-f0-9]{64}$/.test(localStorage.getItem(ADMIN_PIN_KEY) || "");
+const isPinStored = () =>
+	/^[a-f0-9]{64}$/.test(localStorage.getItem(ADMIN_PIN_KEY) || "");
 
 export default function AdminLoginScreen() {
 	const navigate = useNavigate();
