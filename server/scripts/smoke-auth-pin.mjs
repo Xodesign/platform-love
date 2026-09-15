@@ -61,11 +61,18 @@ try {
 	);
 
 	// 2. Регистрация с почтой → токен и требует PIN
-	r = await post("/api/auth/register", { login, email, password, name: "Тест" });
+	r = await post("/api/auth/register", {
+		login,
+		email,
+		password,
+		name: "Тест",
+	});
 	const token = r.data?.token;
 	check(
 		"регистрация с email → 201 + requiresPin",
-		r.status === 201 && r.data?.requiresPin === true && r.data?.user?.hasPin === false,
+		r.status === 201 &&
+			r.data?.requiresPin === true &&
+			r.data?.user?.hasPin === false,
 		`${r.status} requiresPin=${r.data?.requiresPin}`,
 	);
 
@@ -87,7 +94,11 @@ try {
 
 	// 5.PIN должен быть ровно 4 цифры
 	r = await post("/api/auth/set-pin", { pin: "12" }, token);
-	check("кривой PIN → 400", r.status === 400, `${r.status} ${r.data?.error || ""}`);
+	check(
+		"кривой PIN → 400",
+		r.status === 400,
+		`${r.status} ${r.data?.error || ""}`,
+	);
 
 	// 6. Установка PIN
 	r = await post("/api/auth/set-pin", { pin: PIN }, token);
@@ -98,7 +109,9 @@ try {
 	);
 
 	// 7. PIN в базе лежит хешем, не открытым текстом
-	const row = db.prepare("SELECT pin_code FROM users WHERE login = ?").get(login);
+	const row = db
+		.prepare("SELECT pin_code FROM users WHERE login = ?")
+		.get(login);
 	check(
 		"PIN в БД не открытым текстом",
 		!!row?.pin_code && row.pin_code !== PIN && row.pin_code.startsWith("$2"),
@@ -115,7 +128,11 @@ try {
 
 	// 9. Неверный PIN отклоняется
 	r = await post("/api/auth/login-pin", { login, pin: "9999" });
-	check("неверный PIN → 401", r.status === 401, `${r.status} ${r.data?.error || ""}`);
+	check(
+		"неверный PIN → 401",
+		r.status === 401,
+		`${r.status} ${r.data?.error || ""}`,
+	);
 
 	// 10. Верный PIN выдаёт токен
 	r = await post("/api/auth/login-pin", { login, pin: PIN });
@@ -128,7 +145,9 @@ try {
 	// 11. Забыли PIN → код на почту (код берём из БД, письмо реально не ждём)
 	r = await post("/api/auth/forgot-password", { login });
 	const reset = db
-		.prepare("SELECT code FROM password_reset_codes WHERE email = ? ORDER BY rowid DESC LIMIT 1")
+		.prepare(
+			"SELECT code FROM password_reset_codes WHERE email = ? ORDER BY rowid DESC LIMIT 1",
+		)
 		.get(email);
 	check(
 		"forgot-password → код в БД по email",
@@ -137,10 +156,16 @@ try {
 	);
 
 	// 12. Сброс по коду: только новый PIN
-	r = await post("/api/auth/reset-password", { login, code: reset?.code, pin: PIN2 });
+	r = await post("/api/auth/reset-password", {
+		login,
+		code: reset?.code,
+		pin: PIN2,
+	});
 	check(
 		"reset-password(PIN) → pinChanged",
-		r.status === 200 && r.data?.pinChanged === true && r.data?.passwordChanged === false,
+		r.status === 200 &&
+			r.data?.pinChanged === true &&
+			r.data?.passwordChanged === false,
 		`${r.status} ${r.data?.message || r.data?.error || ""}`,
 	);
 
@@ -155,8 +180,16 @@ try {
 	);
 
 	// 14. Повторное использование кода запрещено
-	r = await post("/api/auth/reset-password", { login, code: reset?.code, pin: "0000" });
-	check("одноразовость кода", r.status === 400, `${r.status} ${r.data?.error || ""}`);
+	r = await post("/api/auth/reset-password", {
+		login,
+		code: reset?.code,
+		pin: "0000",
+	});
+	check(
+		"одноразовость кода",
+		r.status === 400,
+		`${r.status} ${r.data?.error || ""}`,
+	);
 
 	// 15. /me по токену
 	const me = await fetch(`${BASE}/api/auth/me`, {
@@ -183,5 +216,7 @@ try {
 }
 
 const failed = results.filter((r) => !r.ok);
-console.log(`\nИТОГ: ${results.length - failed.length}/${results.length} passed`);
+console.log(
+	`\nИТОГ: ${results.length - failed.length}/${results.length} passed`,
+);
 process.exit(failed.length ? 1 : 0);
