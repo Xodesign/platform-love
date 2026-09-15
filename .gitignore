@@ -71,3 +71,7 @@ android/local.properties
 .screenshots/
 *.tsbuildinfo
 coverage/
+
+# Файлы с паролями/expect-скрипты — никогда не коммитить
+deploy/expect_deploy.exp
+deploy/*.exp

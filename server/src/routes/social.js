@@ -76,17 +76,30 @@ router.get("/blacklist", authenticateToken, (req, res) => {
 	res.json(
 		db
 			.prepare(
-				`SELECT b.id, b.reason, b.created_at, u.id AS user_id, u.name, u.age, u.photos
-       FROM blocked_users b JOIN users u ON u.id = b.blocked_id WHERE b.owner_id=?`,
+				`SELECT b.id, b.reason, b.created_at, u.id AS user_id, u.name, u.age,
+				        u.gender, u.location, u.photos
+			         FROM blocked_users b
+			         JOIN users u ON u.id = b.blocked_id
+			         WHERE b.owner_id=?`,
 			)
 			.all(req.user.id)
-			.map((b) => ({
-				id: b.user_id,
-				name: b.name,
-				age: b.age,
-				photos: JSON.parse(b.photos || "[]"),
-				reason: b.reason,
-			})),
+			.map((b) => {
+				let photos = [];
+				try {
+					photos = JSON.parse(b.photos || "[]");
+				} catch {
+					photos = [];
+				}
+				return {
+					id: b.user_id,
+					name: b.name,
+					age: b.age,
+					gender: b.gender,
+					location: b.location,
+					photos,
+					reason: b.reason,
+				};
+			}),
 	);
 });
 router.post("/blacklist", authenticateToken, (req, res) => {

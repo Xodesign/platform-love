@@ -5,7 +5,12 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const db = new Database(join(__dirname, '../../database.sqlite'));
+// Путь к БД берётся из DATABASE_PATH (для прода, репетиций и тестов),
+// иначе — локальный файл разработки.
+const dbPath =
+  process.env.DATABASE_PATH || join(__dirname, '../../database.sqlite');
+
+const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 
 export default db;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./api.js";
 
@@ -44,17 +44,40 @@ export default function BlacklistScreen() {
 	const navigate = useNavigate();
 	const [blacklist, setBlacklist] = useState(blacklistProfiles);
 
-	useEffect(() => {
-		api
-			.myBlacklist()
-			.then((data) => {
-				if (Array.isArray(data)) setBlacklist(data);
-			})
-			.catch(() => {});
+	const loadBlacklist = useCallback(async () => {
+		try {
+			const data = await api.myBlacklist();
+			if (Array.isArray(data)) {
+				setBlacklist(
+					data.map((b) => ({
+						id: b.id,
+						name: b.name || "Без имени",
+						age: b.age ?? "—",
+						gender: b.gender || "—",
+						status:
+							b.reason && b.reason !== "—"
+								? `Причина: ${b.reason}`
+								: "В чёрном списке",
+						origin: b.location || "—",
+					})),
+				);
+			}
+		} catch {
+			/* сервер недоступен — оставляем локальный список */
+		}
 	}, []);
 
-	const removeFromBlacklist = (id) => {
-		setBlacklist((prev) => prev.filter((p) => p.id !== id));
+	useEffect(() => {
+		loadBlacklist();
+	}, [loadBlacklist]);
+
+	const removeFromBlacklist = async (id) => {
+		try {
+			await api.removeFromBlacklist(id);
+			await loadBlacklist();
+		} catch {
+			setBlacklist((prev) => prev.filter((p) => p.id !== id));
+		}
 	};
 
 	return (
