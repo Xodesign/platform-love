@@ -7,6 +7,13 @@ import { sendEmail, emailTemplates } from "../utils/email.js";
 
 const router = Router();
 
+// Войти можно и по логину, и по почте. Почту нормализуем к нижнему регистру —
+// ровно так же, как сохраняем при регистрации
+const identifier = (value) => {
+	const v = (value || "").trim();
+	return v.includes("@") ? v.toLowerCase() : v;
+};
+
 // ============================================
 // РЕГИСТРАЦИЯ (login + email + password)
 // ============================================
@@ -17,6 +24,17 @@ router.post("/register", async (req, res) => {
 
 		if (!login || !password || !name) {
 			return res.status(400).json({ error: "Логин, пароль и имя обязательны" });
+		}
+
+		// Почта обязательна: через неё восстанавливают доступ, когда забыли PIN
+		const normalizedEmail = (email || "").trim().toLowerCase();
+		if (!normalizedEmail) {
+			return res
+				.status(400)
+				.json({ error: "Укажите email — на него придёт код восстановления доступа" });
+		}
+		if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(normalizedEmail)) {
+			return res.status(400).json({ error: "Похоже, в email опечатка" });
 		}
 
 		if (login.length < 3) {
@@ -41,14 +59,12 @@ router.post("/register", async (req, res) => {
 			return res.status(400).json({ error: "Логин уже занят" });
 		}
 
-		// Проверяем email если он указан
-		if (email) {
-			const existingEmail = db
-				.prepare("SELECT id FROM users WHERE email = ?")
-				.get(email);
-			if (existingEmail) {
-				return res.status(400).json({ error: "Email уже зарегистрирован" });
-			}
+		// Проверяем email на занятость
+		const existingEmail = db
+			.prepare("SELECT id FROM users WHERE email = ?")
+			.get(normalizedEmail);
+		if (existingEmail) {
+			return res.status(400).json({ error: "Такой email уже зарегистрирован" });
 		}
 
 		const hashedPassword = await bcrypt.hash(password, 10);
@@ -58,24 +74,22 @@ router.post("/register", async (req, res) => {
 		db.prepare(`
       INSERT INTO users (id, login, email, password, name)
       VALUES (?, ?, ?, ?, ?)
-    `).run(userId, login, email || null, hashedPassword, name);
+    `).run(userId, login, normalizedEmail, hashedPassword, name);
 
 		const token = generateToken(userId);
 
-		// Отправляем email приветствия (только если email указан)
-		if (email) {
-			sendEmail({
-				to: email,
-				...emailTemplates.welcome(name),
-			}).catch((err) => console.error("Welcome email error:", err));
-		}
+		// Отправляем email приветствия
+		sendEmail({
+			to: normalizedEmail,
+			...emailTemplates.welcome(name),
+		}).catch((err) => console.error("Welcome email error:", err));
 
 		res.status(201).json({
 			success: true,
 			token,
 			userId,
 			requiresPin: true,
-			user: { id: userId, login, email, name },
+			user: { id: userId, login, email: normalizedEmail, name, hasPin: false },
 		});
 	} catch (error) {
 		console.error("Register error:", error);
@@ -122,7 +136,15 @@ router.post("/set-pin", authenticateToken, async (req, res) => {
 			userId,
 		);
 
-		res.json({ success: true, message: "PIN установлен" });
+		// Клиент решает, куда вести дальше: анкета заполнена или нет
+		const me = db.prepare("SELECT age FROM users WHERE id = ?").get(userId);
+
+		res.json({
+			success: true,
+			message: "PIN установлен",
+			hasPin: true,
+			hasProfile: !!me?.age,
+		});
 	} catch (error) {
 		console.error("Set PIN error:", error);
 		res.status(500).json({ error: "Ошибка при установке PIN" });
@@ -142,9 +164,10 @@ router.post("/login", async (req, res) => {
 		}
 
 		// Ищем по логину или email
+		const id = identifier(login);
 		const user = db
 			.prepare("SELECT * FROM users WHERE login = ? OR email = ?")
-			.get(login, login);
+			.get(id, id);
 
 		if (!user) {
 			return res.status(401).json({ error: "Неверный логин или пароль" });
@@ -191,9 +214,10 @@ router.post("/login-pin", async (req, res) => {
 			return res.status(400).json({ error: "PIN должен быть 4 цифры" });
 		}
 
+		const id = identifier(login);
 		const user = db
 			.prepare("SELECT * FROM users WHERE login = ? OR email = ?")
-			.get(login, login);
+			.get(id, id);
 
 		if (!user) {
 			return res.status(401).json({ error: "Пользователь не найден" });
@@ -369,8 +393,11 @@ router.post("/forgot-password", async (req, res) => {
 			return res.status(400).json({ error: "Логин обязателен" });
 		}
 
-		// Ищем пользователя по логину
-		const user = db.prepare("SELECT * FROM users WHERE login = ?").get(login);
+		// Ищем пользователя по логину или почте
+		const id = identifier(login);
+		const user = db
+			.prepare("SELECT * FROM users WHERE login = ? OR email = ?")
+			.get(id, id);
 
 		if (!user) {
 			// Не говорим что пользователя нет - для безопасности
@@ -402,10 +429,15 @@ router.post("/forgot-password", async (req, res) => {
     `).run(uuidv4(), user.email, code, expiresAt);
 
 		// Отправляем email с предупреждением про спам
-		await sendEmail({
+		const mail = await sendEmail({
 			to: user.email,
-			...emailTemplates.passwordReset(user.name, code),
+			...emailTemplates.accessRecovery(user.name, code),
 		});
+		if (mail && mail.success === false) {
+			// Наружу не выбрасываем: пользователю всегда один и тот же ответ,
+			// чтобы нельзя было проверить существование аккаунта
+			console.error("Recovery email failed:", mail.error);
+		}
 
 		res.json({
 			success: true,
@@ -424,18 +456,29 @@ router.post("/forgot-password", async (req, res) => {
 
 router.post("/reset-password", async (req, res) => {
 	try {
-		const { login, code, newPassword } = req.body;
+		const { login, code, newPassword, pin } = req.body;
 
-		if (!login || !code || !newPassword) {
-			return res.status(400).json({ error: "Все поля обязательны" });
+		if (!login || !code) {
+			return res.status(400).json({ error: "Логин и код обязательны" });
 		}
 
-		if (newPassword.length < 6) {
+		if (newPassword && newPassword.length < 6) {
 			return res.status(400).json({ error: "Пароль минимум 6 символов" });
 		}
+		if (pin && !/^\d{4}$/.test(pin)) {
+			return res.status(400).json({ error: "PIN должен быть 4 цифры" });
+		}
+		if (!newPassword && !pin) {
+			return res
+				.status(400)
+				.json({ error: "Укажите новый пароль и/или новый PIN" });
+		}
 
-		// Ищем пользователя по логину
-		const user = db.prepare("SELECT * FROM users WHERE login = ?").get(login);
+		// Ищем пользователя по логину или почте
+		const id = identifier(login);
+		const user = db
+			.prepare("SELECT * FROM users WHERE login = ? OR email = ?")
+			.get(id, id);
 		if (!user || !user.email) {
 			return res.status(400).json({ error: "Пользователь не найден" });
 		}
@@ -452,19 +495,33 @@ router.post("/reset-password", async (req, res) => {
 			return res.status(400).json({ error: "Неверный или просроченный код" });
 		}
 
-		// Меняем пароль
-		const hashedPassword = await bcrypt.hash(newPassword, 10);
-		db.prepare("UPDATE users SET password = ? WHERE id = ?").run(
-			hashedPassword,
-			user.id,
-		);
+		// Применяем то, что попросили сменить
+		if (newPassword) {
+			const hashedPassword = await bcrypt.hash(newPassword, 10);
+			db.prepare("UPDATE users SET password = ? WHERE id = ?").run(
+				hashedPassword,
+				user.id,
+			);
+		}
+		if (pin) {
+			const hashedPin = await bcrypt.hash(pin, 10);
+			db.prepare("UPDATE users SET pin_code = ? WHERE id = ?").run(
+				hashedPin,
+				user.id,
+			);
+		}
 
 		// Помечаем код как использованный
 		db.prepare("UPDATE password_reset_codes SET used = 1 WHERE id = ?").run(
 			resetRecord.id,
 		);
 
-		res.json({ success: true, message: "Пароль изменён" });
+		res.json({
+			success: true,
+			message: newPassword && pin ? "Пароль и PIN обновлены" : newPassword ? "Пароль изменён" : "PIN изменён",
+			passwordChanged: !!newPassword,
+			pinChanged: !!pin,
+		});
 	} catch (error) {
 		console.error("Reset password error:", error);
 		res.status(500).json({ error: "Ошибка при сбросе пароля" });

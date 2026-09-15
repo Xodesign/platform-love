@@ -1171,10 +1171,13 @@ function QuestionScreen() {
 
 // Login Screen
 function LoginScreen() {
-	const [login, setLogin] = useState("");
+	// Если на этом устройстве уже входили по PIN — начинаем сразу с PIN
+	const [login, setLogin] = useState(() => localStorage.getItem("pin_login") || "");
 	const [password, setPassword] = useState("");
 	const [pin, setPin] = useState("");
-	const [step, setStep] = useState(1); // 1: password, 2: PIN
+	const [step, setStep] = useState(() =>
+		localStorage.getItem("pin_login") ? 2 : 1,
+	); // 1: пароль, 2: PIN
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState("");
 	const navigate = useNavigate();
@@ -1202,13 +1205,14 @@ function LoginScreen() {
 			if (response.ok) {
 				// Если PIN установлен - показываем поле для PIN
 				if (data.user.hasPin) {
+					localStorage.setItem("pin_login", data.user.login || login);
 					setStep(2);
 					setPassword("");
 				} else {
+					// PIN обязателен: без него доступ к аккаунту не выпускаем
 					localStorage.setItem("token", data.token);
 					localStorage.setItem("user", JSON.stringify(data.user));
-					// PIN — опциональная функция настроек, он не должен блокировать вход
-					navigate(data.user.hasProfile ? "/menu" : "/profile");
+					navigate("/set-pin");
 				}
 			} else {
 				setError(data.error || "Ошибка при входе");
@@ -1243,7 +1247,8 @@ function LoginScreen() {
 			if (response.ok) {
 				localStorage.setItem("token", data.token);
 				localStorage.setItem("user", JSON.stringify(data.user));
-				navigate("/menu");
+				localStorage.setItem("pin_login", data.user.login || login);
+				navigate(data.user.hasProfile ? "/menu" : "/profile");
 			} else {
 				setError(data.error || "Неверный PIN");
 			}
@@ -1491,7 +1496,7 @@ function LoginScreen() {
 						color: "#8E8E8E",
 					}}
 				>
-					Забыли пароль?{" "}
+					Забыли PIN или пароль?{" "}
 					<span
 						onClick={() => navigate("/forgot-password")}
 						style={{ color: "#7B5EA7", fontWeight: 600, cursor: "pointer" }}
@@ -1513,6 +1518,7 @@ function ForgotPasswordScreen() {
 	const [code, setCode] = useState("");
 	const [newPassword, setNewPassword] = useState("");
 	const [confirmPassword, setConfirmPassword] = useState("");
+	const [newPin, setNewPin] = useState("");
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState("");
 	const [success, setSuccess] = useState("");
@@ -1548,12 +1554,23 @@ function ForgotPasswordScreen() {
 
 	const handleResetPassword = async (e) => {
 		e.preventDefault();
-		if (newPassword !== confirmPassword) {
-			setError("Пароли не совпадают");
+		// Можно вернуть только пароль, только PIN или сразу оба
+		if (!newPassword && !newPin) {
+			setError("Заполните хотя бы одно поле: пароль или PIN");
 			return;
 		}
-		if (newPassword.length < 6) {
-			setError("Пароль минимум 6 символов");
+		if (newPassword) {
+			if (newPassword.length < 6) {
+				setError("Пароль минимум 6 символов");
+				return;
+			}
+			if (newPassword !== confirmPassword) {
+				setError("Пароли не совпадают");
+				return;
+			}
+		}
+		if (newPin && !/^\d{4}$/.test(newPin)) {
+			setError("PIN — ровно 4 цифры");
 			return;
 		}
 		setLoading(true);
@@ -1562,11 +1579,16 @@ function ForgotPasswordScreen() {
 			const response = await fetch("/api/auth/reset-password", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ login, code, newPassword }),
+				body: JSON.stringify({
+					login,
+					code,
+					newPassword: newPassword || undefined,
+					pin: newPin || undefined,
+				}),
 			});
 			const data = await response.json();
 			if (response.ok) {
-				setSuccess("Пароль изменён!");
+				setSuccess(data.message || "Готово");
 				setTimeout(() => navigate("/"), 2000);
 			} else {
 				setError(data.error);
@@ -1606,7 +1628,7 @@ function ForgotPasswordScreen() {
 					style={{ width: 200, height: "auto", marginBottom: 8 }}
 				/>
 				<h2 style={{ fontSize: 20, fontWeight: 600, margin: "24px 0 16px" }}>
-					Восстановление пароля
+					Восстановление доступа
 				</h2>
 				{step === 1 && (
 					<form onSubmit={handleSendCode} style={{ width: "100%" }}>
@@ -1716,9 +1738,12 @@ function ForgotPasswordScreen() {
 				)}
 				{step === 3 && (
 					<form onSubmit={handleResetPassword} style={{ width: "100%" }}>
+						<p style={{ fontSize: 14, color: "#8E8E8E", marginBottom: 12 }}>
+							Заполните то, что хотите вернуть: пароль, PIN или оба сразу.
+						</p>
 						<input
 							type="password"
-							placeholder="Новый пароль (мин. 6 символов)"
+							placeholder="Новый пароль (не обязательно)"
 							value={newPassword}
 							onChange={(e) => setNewPassword(e.target.value)}
 							style={{
@@ -1740,10 +1765,32 @@ function ForgotPasswordScreen() {
 							style={{
 								width: "100%",
 								padding: "14px 16px",
+								border: "2px solid #E0E0E0",
+								borderRadius: 12,
+								backgroundColor: "white",
+								fontSize: 16,
+								outline: "none",
+								marginBottom: 12,
+							}}
+						/>
+						<input
+							type="text"
+							inputMode="numeric"
+							pattern="[0-9]*"
+							placeholder="Новый PIN — 4 цифры"
+							value={newPin}
+							onChange={(e) =>
+								setNewPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+							}
+							maxLength={4}
+							style={{
+								width: "100%",
+								padding: "14px 16px",
 								border: error ? "2px solid #E53935" : "2px solid #E0E0E0",
 								borderRadius: 12,
 								backgroundColor: "white",
 								fontSize: 16,
+								letterSpacing: "6px",
 								outline: "none",
 								marginBottom: 12,
 							}}
@@ -1772,7 +1819,7 @@ function ForgotPasswordScreen() {
 								cursor: "pointer",
 							}}
 						>
-							{loading ? "Сохранение..." : "Изменить пароль"}
+							{loading ? "Сохранение..." : "Сохранить"}
 						</button>
 					</form>
 				)}
@@ -1784,7 +1831,7 @@ function ForgotPasswordScreen() {
 						color: "#8E8E8E",
 					}}
 				>
-					Вспомнили пароль?{" "}
+					Вспомнили доступ?{" "}
 					<span
 						onClick={() => navigate("/")}
 						style={{ color: "#7B5EA7", fontWeight: 600, cursor: "pointer" }}
@@ -1815,7 +1862,7 @@ function SetPinScreen() {
 
 	const handleSetPin = async (e) => {
 		e.preventDefault();
-		if (pin.length !== 4) {
+		if (!/^\d{4}$/.test(pin) || pin.length !== 4) {
 			setError("Введите 4 цифры");
 			return;
 		}
@@ -1837,7 +1884,18 @@ function SetPinScreen() {
 			});
 			const data = await response.json();
 			if (response.ok) {
-				navigate("/menu");
+				// Запоминаем логин: в следующий раз приложение сразу попросит PIN
+				const me = JSON.parse(localStorage.getItem("user") || "{}");
+				if (me.login) localStorage.setItem("pin_login", me.login);
+				// Отмечаем у себя, что PIN больше не ждём
+				me.hasPin = true;
+				if (typeof data.hasProfile === "boolean") me.hasProfile = data.hasProfile;
+				localStorage.setItem("user", JSON.stringify(me));
+				const hasProfile =
+					typeof data.hasProfile === "boolean"
+						? data.hasProfile
+						: !!me.hasProfile;
+				navigate(hasProfile ? "/menu" : "/profile");
 			} else {
 				setError(data.error || "Ошибка");
 			}
@@ -1886,7 +1944,8 @@ function SetPinScreen() {
 						textAlign: "center",
 					}}
 				>
-					4 цифры для быстрого входа
+					4 цифры — с ними вы и будете входить. Забыли? Восстанавливаете
+					почтой, которую указали при регистрации.
 				</p>
 				<form onSubmit={handleSetPin} style={{ width: "100%" }}>
 					<div style={{ marginBottom: 16 }}>
@@ -2125,6 +2184,15 @@ function RegisterScreen() {
 			setError("Логин может содержать только латиницу, цифры и _");
 			return;
 		}
+		const trimmedEmail = email.trim();
+		if (!trimmedEmail) {
+			setError("Без почты аккаунт не создать: на неё восстанавливают доступ");
+			return;
+		}
+		if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(trimmedEmail)) {
+			setError("Похоже, в почте опечатка");
+			return;
+		}
 		if (password.length < 6) {
 			setError("Пароль должен быть минимум 6 символов");
 			return;
@@ -2143,7 +2211,7 @@ function RegisterScreen() {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					login,
-					email: email || undefined,
+					email: trimmedEmail,
 					password,
 					name,
 				}),
@@ -2154,7 +2222,8 @@ function RegisterScreen() {
 			if (response.ok) {
 				localStorage.setItem("token", data.token);
 				localStorage.setItem("user", JSON.stringify(data.user));
-				navigate("/profile");
+				// Сначала PIN, потом анкета
+				navigate(data.requiresPin === false ? "/profile" : "/set-pin");
 			} else {
 				setError(data.error || "Ошибка при регистрации");
 			}
@@ -2241,7 +2310,7 @@ function RegisterScreen() {
 					<div style={{ marginBottom: 16 }}>
 						<input
 							type="email"
-							placeholder="Email (для восстановления пароля, не обязательно)"
+							placeholder="Email (обязательно)"
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							style={{
@@ -2254,6 +2323,15 @@ function RegisterScreen() {
 								outline: "none",
 							}}
 						/>
+						<p
+							style={{
+								fontSize: 12,
+								color: "#8E8E8E",
+								margin: "6px 2px 0",
+							}}
+						>
+							На него вернём доступ, если забудете PIN
+						</p>
 					</div>
 					<div style={{ marginBottom: 16 }}>
 						<input
@@ -2341,337 +2419,6 @@ function RegisterScreen() {
 						Войти
 					</span>
 				</p>
-			</div>
-		</div>
-	);
-}
-
-// Verify Screen
-function VerifyScreen() {
-	const [code, setCode] = useState(["", "", "", ""]);
-	const [timer, setTimer] = useState(60);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState("");
-	const [debugCode, setDebugCode] = useState(""); // Для development-режима
-	const [pendingPhone, setPendingPhone] = useState("");
-	const [isReady, setIsReady] = useState(false);
-	const inputRefs = useRef([]);
-	const navigate = useNavigate();
-
-	// Получаем телефон из sessionStorage после монтирования
-	useEffect(() => {
-		const phone = sessionStorage.getItem("pendingPhone");
-		if (phone) {
-			setPendingPhone(phone);
-		}
-		setIsReady(true);
-	}, []);
-
-	// Таймер обратного отсчёта
-	useEffect(() => {
-		if (timer > 0) {
-			const interval = setInterval(() => setTimer((t) => t - 1), 1000);
-			return () => clearInterval(interval);
-		}
-	}, [timer]);
-
-	// Если нет телефона после загрузки — возвращаемся на вход
-	useEffect(() => {
-		if (isReady && !pendingPhone) {
-			navigate("/");
-		}
-	}, [isReady, pendingPhone, navigate]);
-
-	const handleChange = (index, value) => {
-		if (value.length <= 1 && /^\d*$/.test(value)) {
-			const newCode = [...code];
-			newCode[index] = value;
-			setCode(newCode);
-			setError("");
-
-			// Автоматическая отправка при завершении ввода
-			if (value && index < 3) {
-				inputRefs.current[index + 1]?.focus();
-			} else if (newCode.every((d) => d !== "")) {
-				// Все 4 цифры введены
-				setTimeout(() => handleVerify(newCode.join("")), 100);
-			}
-		}
-	};
-
-	const handleKeyDown = (index, e) => {
-		if (e.key === "Backspace" && !code[index] && index > 0) {
-			inputRefs.current[index - 1]?.focus();
-		}
-	};
-
-	const isComplete = code.every((digit) => digit !== "");
-
-	// Отправка кода на сервер
-	const handleVerify = async (codeString) => {
-		setLoading(true);
-		setError("");
-
-		try {
-			const response = await fetch("/api/auth/verify-code", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ phone: pendingPhone, code: codeString }),
-			});
-
-			const data = await response.json();
-
-			if (response.ok) {
-				// Успешная верификация
-				localStorage.setItem("token", data.token);
-				localStorage.setItem("user", JSON.stringify(data.user));
-				sessionStorage.removeItem("pendingPhone");
-
-				// Если новый пользователь — перенаправляем на заполнение профиля
-				if (data.user.is_new) {
-					navigate("/profile");
-				} else {
-					navigate("/menu");
-				}
-			} else {
-				setError(data.error || "Неверный код");
-				setCode(["", "", "", ""]);
-				inputRefs.current[0]?.focus();
-			}
-		} catch (err) {
-			setError("Ошибка проверки кода. Попробуйте снова.");
-			setCode(["", "", "", ""]);
-		} finally {
-			setLoading(false);
-		}
-	};
-
-	// Повторная отправка кода
-	const handleResend = async () => {
-		setLoading(true);
-		setError("");
-		setTimer(60);
-
-		try {
-			const response = await fetch("/api/auth/send-code", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ phone: pendingPhone }),
-			});
-
-			const data = await response.json();
-
-			if (response.ok) {
-				// В development-режиме показываем код
-				if (data.debug_code) {
-					setDebugCode(data.debug_code);
-				}
-				setCode(["", "", "", ""]);
-				inputRefs.current[0]?.focus();
-			} else {
-				setError(data.error || "Ошибка при отправке кода");
-			}
-		} catch (err) {
-			setError("Не удалось отправить код. Попробуйте снова.");
-		} finally {
-			setLoading(false);
-		}
-	};
-
-	// Показываем debug-код в development
-	useEffect(() => {
-		const checkDebugCode = () => {
-			if (import.meta.env.DEV && debugCode) {
-				console.log("📱 Debug code:", debugCode);
-			}
-		};
-		checkDebugCode();
-	}, [debugCode]);
-
-	return (
-		<div
-			style={{
-				minHeight: "100vh",
-				backgroundColor: "#F5F5F5",
-				display: "flex",
-				alignItems: "center",
-				justifyContent: "center",
-				padding: "16px",
-				fontFamily: "Inter, system-ui, sans-serif",
-			}}
-		>
-			<div
-				style={{
-					width: "100%",
-					maxWidth: 375,
-					padding: "64px 24px 24px",
-					display: "flex",
-					flexDirection: "column",
-					alignItems: "center",
-				}}
-			>
-				<img
-					src={LOGO_URL}
-					alt="Logo"
-					style={{ width: 200, height: "auto", marginBottom: 8 }}
-				/>
-				<h2
-					style={{
-						fontSize: 18,
-						fontWeight: 600,
-						color: "#7B5EA7",
-						margin: "48px 0 16px",
-						textAlign: "center",
-					}}
-				>
-					Введите код из СМС
-				</h2>
-				<p
-					style={{
-						fontSize: 14,
-						color: "#8E8E8E",
-						marginBottom: 24,
-						textAlign: "center",
-					}}
-				>
-					Код отправлен на номер{" "}
-					<span style={{ fontWeight: 600, color: "#1A1A1A" }}>
-						{pendingPhone}
-					</span>
-				</p>
-
-				{/* Debug-подсказка в development */}
-				{debugCode && (
-					<div
-						style={{
-							backgroundColor: "#FFF3E0",
-							padding: "8px 16px",
-							borderRadius: 8,
-							marginBottom: 16,
-							fontSize: 14,
-							color: "#E65100",
-						}}
-					>
-						Dev-режим: код {debugCode}
-					</div>
-				)}
-
-				{/* Поля ввода кода */}
-				<div
-					style={{
-						display: "flex",
-						justifyContent: "center",
-						gap: 12,
-						marginBottom: 16,
-					}}
-				>
-					{code.map((digit, index) => (
-						<input
-							key={index}
-							ref={(el) => (inputRefs.current[index] = el)}
-							type="text"
-							inputMode="numeric"
-							maxLength={1}
-							value={digit}
-							onChange={(e) => handleChange(index, e.target.value)}
-							onKeyDown={(e) => handleKeyDown(index, e)}
-							disabled={loading}
-							style={{
-								width: 56,
-								height: 56,
-								textAlign: "center",
-								fontSize: 24,
-								fontWeight: 600,
-								border: error ? "2px solid #E53935" : "2px solid #CCCCCC",
-								borderRadius: 12,
-								backgroundColor: loading ? "#F5F5F5" : "white",
-								color: "#1A1A1A",
-								outline: "none",
-							}}
-						/>
-					))}
-				</div>
-
-				{error && (
-					<p
-						style={{
-							color: "#E53935",
-							fontSize: 14,
-							textAlign: "center",
-							marginBottom: 16,
-						}}
-					>
-						{error}
-					</p>
-				)}
-
-				{timer > 0 ? (
-					<p
-						style={{
-							fontSize: 14,
-							color: "#8E8E8E",
-							textAlign: "center",
-						}}
-					>
-						Повторная отправка через{" "}
-						<span style={{ fontWeight: 600 }}>{timer}</span> сек
-					</p>
-				) : (
-					<button
-						onClick={handleResend}
-						disabled={loading}
-						style={{
-							fontSize: 14,
-							color: loading ? "#CCCCCC" : "#7B5EA7",
-							fontWeight: 500,
-							backgroundColor: "transparent",
-							border: "none",
-							cursor: loading ? "not-allowed" : "pointer",
-						}}
-					>
-						Отправить код повторно
-					</button>
-				)}
-
-				<div style={{ flex: 1, minHeight: 40 }} />
-
-				<button
-					onClick={() => handleVerify(code.join(""))}
-					disabled={loading || !isComplete}
-					style={{
-						width: "100%",
-						padding: "16px",
-						backgroundColor: isComplete && !loading ? "#7B5EA7" : "transparent",
-						color: isComplete && !loading ? "white" : "#7B5EA7",
-						borderRadius: 12,
-						fontSize: 16,
-						fontWeight: 600,
-						border: "2px solid #7B5EA7",
-						cursor: isComplete && !loading ? "pointer" : "not-allowed",
-						transition: "all 0.2s",
-					}}
-				>
-					{loading ? "Проверка..." : "Войти"}
-				</button>
-
-				<button
-					onClick={() => {
-						sessionStorage.removeItem("pendingPhone");
-						navigate("/");
-					}}
-					style={{
-						marginTop: 16,
-						fontSize: 14,
-						color: "#8E8E8E",
-						backgroundColor: "transparent",
-						border: "none",
-						cursor: "pointer",
-					}}
-				>
-					← Изменить номер
-				</button>
-
-				<div style={{ height: 24 }} />
 			</div>
 		</div>
 	);
@@ -3141,6 +2888,11 @@ function RootGate() {
 		return <OnboardingScreen />;
 	}
 	if (localStorage.getItem("token")) {
+		const me = JSON.parse(localStorage.getItem("user") || "{}");
+		// PIN обязателен: если после регистрации он не был доведен — возвращаем
+		if (me.hasPin === false) {
+			return <Navigate to="/set-pin" replace />;
+		}
 		return <Navigate to="/menu" replace />;
 	}
 	return <LoginScreen />;
@@ -3159,13 +2911,12 @@ function App() {
 						<Route path="/login" element={<RootGate />} />
 						<Route path="/onboarding" element={<OnboardingScreen />} />
 						<Route path="/register" element={<RegisterScreen />} />
-						<Route path="/set-pin" element={<SetPinScreen />} />
 						<Route path="/forgot-password" element={<ForgotPasswordScreen />} />
-						<Route path="/verify" element={<VerifyScreen />} />
 						<Route path="/auth/yandex/callback" element={<YandexCallback />} />
 
 						{/* Экраны, требующие входа */}
 						<Route element={<RequireAuth />}>
+						<Route path="/set-pin" element={<SetPinScreen />} />
 							<Route path="/profile" element={<ProfileScreen />} />
 							<Route path="/questions" element={<QuestionScreen />} />
 							<Route path="/menu" element={<MainMenuScreen />} />

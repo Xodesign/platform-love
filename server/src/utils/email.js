@@ -104,4 +104,28 @@ export const emailTemplates = {
       </div>
     `,
 	}),
+
+	// Восстановление доступа: одним кодом можно вернуть и пароль, и PIN
+	accessRecovery: (name, code) => ({
+		subject: "Код для восстановления доступа Platform Love",
+		text: `Привет, ${name}!\n\nКод для восстановления доступа: ${code}\n\nОн подойдёт и для нового пароля, и для нового PIN. Если вы ничего не запрашивали — проигнорируйте письмо.`,
+		html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h1 style="color: #7B5EA7;">Восстановление доступа</h1>
+        <p>Привет, <strong>${name}</strong>!</p>
+        <p>Код для восстановления пароля и PIN:</p>
+        <div style="background: #f5f5f5; padding: 20px; text-align: center; font-size: 24px; letter-spacing: 4px; margin: 20px 0;">
+          <strong>${code}</strong>
+        </div>
+        <div style="background: #FFF3CD; border-left: 4px solid #FFC107; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
+          <p style="margin: 0; color: #856404; font-size: 13px;">
+            <strong>⚠️ Внимание!</strong> Письмо может попасть в папку «Спам».
+            <br>Если не видите его во входящих, проверьте «Спам» и пометьте как «Не спам».
+          </p>
+        </div>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="color: #888; font-size: 12px;">Если вы не запрашивали восстановление, проигнорируйте сообщение.</p>
+      </div>
+    `,
+	}),
 };

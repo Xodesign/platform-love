@@ -245,6 +245,23 @@ export default function SettingsScreen() {
 						</button>
 					</div>
 
+					{/* Смена PIN — тот же экран, что и при первом входе */}
+					<div
+						onClick={() => navigate("/set-pin")}
+						style={{
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "space-between",
+							padding: "16px 20px",
+							cursor: "pointer",
+						}}
+					>
+						<span style={{ fontSize: 15, color: "#1A1A1A" }}>
+							Сменить PIN-код
+						</span>
+						<span style={{ fontSize: 18, color: "#8E8E8E" }}>›</span>
+					</div>
+
 					{/* Удалить анкету */}
 					<div
 						style={{
